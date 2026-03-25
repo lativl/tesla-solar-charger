@@ -1,0 +1,804 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>User Manual - Tesla Solar Charger</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+    <nav>
+        <h1>&#9889; Tesla Solar Charger</h1>
+        <div class="nav-links">
+            <a href="/">Dashboard</a>
+            <a href="/inverter.html">Inverter</a>
+            <a href="/vehicle.html" id="vehicle-tab">Vehicle</a>
+            <a href="/settings.html">Settings</a>
+            <a href="/logger.html">Logger</a>
+            <a href="/help.html" class="active">Help</a>
+        </div>
+    </nav>
+
+    <main class="help-page">
+
+        <!-- Table of Contents -->
+        <div class="section">
+            <h2>User Manual</h2>
+            <p class="help-intro">
+                Tesla Solar Charger automatically manages your Tesla EV charging to maximize solar self-consumption.
+                It reads real-time data from your Deya inverter via MQTT (Solar Assistant), calculates available surplus solar power,
+                and dynamically adjusts charging current through the Tesla Fleet API and Vehicle Command Protocol.
+            </p>
+            <div class="toc">
+                <h3>Contents</h3>
+                <ol>
+                    <li><a href="#overview">System Overview</a></li>
+                    <li><a href="#getting-started">Getting Started</a></li>
+                    <li><a href="#dashboard">Dashboard</a></li>
+                    <li><a href="#inverter">Inverter Page</a></li>
+                    <li><a href="#vehicle">Vehicle Page</a></li>
+                    <li><a href="#modes">Charging Modes</a></li>
+                    <li><a href="#algorithm">How the Algorithm Works</a></li>
+                    <li><a href="#settings">Settings Reference</a></li>
+                    <li><a href="#schedules">Scheduling</a></li>
+                    <li><a href="#logger">Logger</a></li>
+                    <li><a href="#tesla-setup">Tesla API Setup</a></li>
+                    <li><a href="#mqtt-topics">MQTT Topics Reference</a></li>
+                    <li><a href="#troubleshooting">Troubleshooting</a></li>
+                </ol>
+            </div>
+        </div>
+
+        <!-- 1. System Overview -->
+        <div class="section" id="overview">
+            <h2>1. System Overview</h2>
+            <div class="help-diagram">
+                <div class="diagram-row">
+                    <div class="diagram-box diagram-solar">Solar Panels</div>
+                    <div class="diagram-arrow">&rarr;</div>
+                    <div class="diagram-box diagram-inverter">Deya Inverter</div>
+                    <div class="diagram-arrow">&rarr;</div>
+                    <div class="diagram-box diagram-mqtt">MQTT Broker</div>
+                    <div class="diagram-arrow">&rarr;</div>
+                    <div class="diagram-box diagram-app">This App</div>
+                    <div class="diagram-arrow">&rarr;</div>
+                    <div class="diagram-box diagram-tesla">Tesla HTTP Proxy</div>
+                    <div class="diagram-arrow">&rarr;</div>
+                    <div class="diagram-box diagram-ev">Tesla EV</div>
+                </div>
+            </div>
+            <div class="help-grid">
+                <div class="help-card">
+                    <h4>Data Source</h4>
+                    <p>Solar Assistant publishes inverter, battery, and grid data to MQTT every ~5 seconds. The app subscribes to all <code>solar_assistant/#</code> topics and caches values in Redis.</p>
+                </div>
+                <div class="help-card">
+                    <h4>Decision Engine</h4>
+                    <p>Every 10 seconds, the algorithm calculates surplus solar power and adjusts Tesla charging current up or down to keep grid import and battery discharge minimal.</p>
+                </div>
+                <div class="help-card">
+                    <h4>Vehicle Commands</h4>
+                    <p>Commands (set amps, start/stop charging) are signed by the <code>tesla-http-proxy</code> using your Fleet API private key and sent via the Vehicle Command Protocol. The car is polled every 60 seconds for SoC and state.</p>
+                </div>
+                <div class="help-card">
+                    <h4>Hardware</h4>
+                    <p>Deya 3-phase inverter, 4&times; Pylontech US5000 batteries (20 kWh total), Tesla EV with Fleet API access.</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- 2. Getting Started -->
+        <div class="section" id="getting-started">
+            <h2>2. Getting Started</h2>
+            <div class="help-steps">
+                <div class="help-step">
+                    <div class="step-number">1</div>
+                    <div class="step-content">
+                        <h4>Verify MQTT Connection</h4>
+                        <p>Open the <a href="/">Dashboard</a>. If solar, battery, and grid gauges are showing live values, MQTT is connected. If everything shows 0, check that <code>192.168.1.50</code> is reachable and Solar Assistant is publishing.</p>
+                    </div>
+                </div>
+                <div class="help-step">
+                    <div class="step-number">2</div>
+                    <div class="step-content">
+                        <h4>Connect Your Tesla</h4>
+                        <p>Go to <a href="/settings.html">Settings</a> and follow the two-step authorization flow:</p>
+                        <ol>
+                            <li>Click <strong>Open Tesla Login</strong> to open Tesla's sign-in page in a new tab.</li>
+                            <li>After signing in, you'll be redirected to a Home Assistant page. Copy the <strong>code</strong> parameter from the URL.</li>
+                            <li>Paste the code into the input field and click <strong>Connect</strong>.</li>
+                        </ol>
+                        <p class="help-note">This uses the HA OAuth redirect relay. You need both Tesla Fleet API credentials in <code>.env</code> and the <code>tesla-http-proxy</code> running. See <a href="#tesla-setup">Tesla API Setup</a>.</p>
+                    </div>
+                </div>
+                <div class="help-step">
+                    <div class="step-number">3</div>
+                    <div class="step-content">
+                        <h4>Configure Thresholds</h4>
+                        <p>On the <a href="/settings.html">Settings</a> page, adjust the charger parameters to match your setup: charger phases, voltage, minimum/maximum amps, and battery protection levels.</p>
+                    </div>
+                </div>
+                <div class="help-step">
+                    <div class="step-number">4</div>
+                    <div class="step-content">
+                        <h4>Plug In &amp; Go</h4>
+                        <p>With the car plugged in and mode set to <strong>Solar Only</strong>, the app will automatically start charging when surplus solar is available and stop when it's not. If the car is asleep, commands will auto-wake it.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 3. Dashboard -->
+        <div class="section" id="dashboard">
+            <h2>3. Dashboard</h2>
+            <div class="help-content">
+                <h4>Mode Bar</h4>
+                <p>At the top of the dashboard, the current charging mode is displayed along with buttons to switch between Solar Only, Schedule, Manual, and Paused modes.</p>
+
+                <h4>Gauges</h4>
+                <p>Five 270-degree arc gauges provide an at-a-glance overview of your system's power state:</p>
+                <table class="help-table">
+                    <thead>
+                        <tr><th>Gauge</th><th>Range</th><th>Description</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><span class="tag tag-solar">Solar</span></td>
+                            <td>0 &ndash; 12 kW</td>
+                            <td>Current total PV generation. Shows kW value and watts below.</td>
+                        </tr>
+                        <tr>
+                            <td><span class="tag tag-battery">Battery</span></td>
+                            <td>0 &ndash; 12 kW</td>
+                            <td>Battery power flow. <strong>Green</strong> when charging, <strong>red</strong> when discharging. Shows direction label below the value.</td>
+                        </tr>
+                        <tr>
+                            <td><span class="tag tag-grid">Grid</span></td>
+                            <td>0 &ndash; 12 kW</td>
+                            <td>Grid power via CT clamp. Positive = importing, negative = exporting.</td>
+                        </tr>
+                        <tr>
+                            <td><span class="tag tag-load">Home Load</span></td>
+                            <td>0 &ndash; 12 kW</td>
+                            <td>Total house consumption (purple). Includes all loads on the inverter output.</td>
+                        </tr>
+                        <tr>
+                            <td><span class="tag tag-ev">Tesla</span></td>
+                            <td>0 &ndash; 7 kW</td>
+                            <td>Tesla charger power draw. Shows 0 when not charging.</td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <h4>Charge Controls</h4>
+                <p>Below the flow cards, manual charge controls allow direct vehicle interaction:</p>
+                <ul>
+                    <li><strong>Start / Stop Charge</strong> &mdash; immediately starts or stops EV charging and switches to Manual mode.</li>
+                    <li><strong>Amps slider (5&ndash;32A)</strong> &mdash; set the charging current. The slider reflects the car's current amp setting (synced via WebSocket). Click <strong>Set</strong> to apply.</li>
+                </ul>
+                <p class="help-note">Using any charge control automatically switches the system to Manual mode to prevent the algorithm from overriding your command.</p>
+
+                <h4>Power Flow Cards</h4>
+                <p>Five cards below the gauges show detailed real-time readings:</p>
+                <table class="help-table">
+                    <thead>
+                        <tr><th>Card</th><th>Shows</th><th>Details</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><span class="tag tag-solar">Solar</span></td>
+                            <td>Total PV generation (W)</td>
+                            <td>Breakdown per PV string (PV1, PV2) shown below</td>
+                        </tr>
+                        <tr>
+                            <td><span class="tag tag-battery">Battery</span></td>
+                            <td>Combined SoC (%)</td>
+                            <td>Power flow (charge/discharge in watts) and bus voltage</td>
+                        </tr>
+                        <tr>
+                            <td><span class="tag tag-grid">Grid</span></td>
+                            <td>Grid power via CT clamp (W)</td>
+                            <td>Positive = importing from grid, negative = exporting. Also shows voltage and frequency.</td>
+                        </tr>
+                        <tr>
+                            <td><span class="tag tag-load">Home Load</span></td>
+                            <td>Total house consumption (W)</td>
+                            <td>Essential (UPS-backed) load shown below</td>
+                        </tr>
+                        <tr>
+                            <td><span class="tag tag-ev">Tesla EV</span></td>
+                            <td>Vehicle battery SoC (%)</td>
+                            <td>Current charging amps and charge state (Charging, Stopped, Disconnected, Complete)</td>
+                        </tr>
+                    </tbody>
+                </table>
+                <p>All values update in real-time via WebSocket (auto-reconnects every 3 seconds if disconnected).</p>
+            </div>
+        </div>
+
+        <!-- 4. Inverter Page -->
+        <div class="section" id="inverter">
+            <h2>4. Inverter Page</h2>
+            <div class="help-content">
+                <p>The <a href="/inverter.html">Inverter</a> tab provides detailed hardware monitoring.</p>
+
+                <h4>Battery Banks</h4>
+                <p>Individual status for each of the 4 Pylontech US5000 batteries: SoC, voltage, current, power, temperature, cycle count, and cell voltage delta (highest - lowest cell). Helps identify battery health issues or imbalances.</p>
+
+                <h4>Inverter Section</h4>
+                <p>Displays inverter temperature, load percentage, operating mode (e.g., "Zero export to CT"), and AC output voltage/frequency.</p>
+
+                <h4>Energy Today</h4>
+                <p>Cumulative daily totals: solar yield estimate, grid import, grid export, battery charge-in, and battery discharge-out (kWh). Updated every 30 seconds.</p>
+
+                <h4>Power History Chart (24h)</h4>
+                <p>Line chart showing solar, battery, grid, and load power on the left axis (Watts) plus EV charging amps on the right axis. Data is recorded every 30 seconds from the app's metrics table. Hover over the chart to see exact values at any point in time.</p>
+            </div>
+        </div>
+
+        <!-- 5. Vehicle Page -->
+        <div class="section" id="vehicle">
+            <h2>5. Vehicle Page</h2>
+            <div class="help-content">
+                <p>The <a href="/vehicle.html">Vehicle</a> tab appears in the navigation when a Tesla is connected. It shows the vehicle name as the tab label and displays comprehensive vehicle information fetched from the Tesla Fleet API.</p>
+
+                <h4>Data Sections</h4>
+                <table class="help-table">
+                    <thead>
+                        <tr><th>Section</th><th>Information</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><strong>Charge State</strong></td>
+                            <td>Battery level, range, charging status, amps, voltage, power, charge limit, port status, scheduled charging</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Climate State</strong></td>
+                            <td>Inside/outside temperature, HVAC status, fan speed, seat heaters, steering wheel heater, defrost mode</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Vehicle State</strong></td>
+                            <td>Door/trunk/window status, lock state, sentry mode, odometer, tire pressures, software version</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Drive State</strong></td>
+                            <td>GPS location, heading, speed, shift state</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Vehicle Config</strong></td>
+                            <td>Car type, exterior color, wheel type, roof type, charge port type</td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <h4>Vehicle Controls</h4>
+                <p>The page provides buttons to remotely control your vehicle. All commands are sent via the signed Vehicle Command Protocol through the HTTP proxy. Available controls include:</p>
+                <ul>
+                    <li><strong>Charging:</strong> Start/stop charging, set charge limit, open/close charge port, set amps</li>
+                    <li><strong>Climate:</strong> Start/stop HVAC, set temperatures, seat heaters, steering wheel heater, max defrost</li>
+                    <li><strong>Security:</strong> Lock/unlock doors, enable/disable sentry mode</li>
+                    <li><strong>Trunk:</strong> Open trunk, open frunk</li>
+                    <li><strong>Windows:</strong> Vent all windows, close all windows</li>
+                    <li><strong>Alerts:</strong> Flash lights, honk horn</li>
+                </ul>
+                <p class="help-note">All commands sent from this page are logged in the <a href="/logger.html">Logger</a> under the "manual" category, showing both the intent and success/failure result.</p>
+
+                <p>Data refreshes automatically every 30 seconds. If the vehicle is asleep, data requests will return a timeout (408) and the page shows the last known state.</p>
+            </div>
+        </div>
+
+        <!-- 6. Charging Modes -->
+        <div class="section" id="modes">
+            <h2>6. Charging Modes</h2>
+            <p>Select a mode using the buttons in the mode bar at the top of the Dashboard.</p>
+            <table class="help-table">
+                <thead>
+                    <tr><th>Mode</th><th>Behavior</th><th>When to Use</th></tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><strong>Solar Only</strong></td>
+                        <td>Only charges from surplus solar. Dynamically adjusts amps every 10 seconds. Stops if surplus drops below minimum amps threshold. Never intentionally draws from grid or battery.</td>
+                        <td>Default daytime mode. Best for maximizing solar self-consumption.</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Schedule</strong></td>
+                        <td>Follows configured time-based schedules. Can allow grid charging to meet a target SoC by a deadline. Falls back to solar-only behavior outside schedule windows.</td>
+                        <td>When you need the car charged by a specific time (e.g., "80% by 7am").</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Manual</strong></td>
+                        <td>Holds current charging amps. No automatic adjustment. Use the manual controls on the Settings page to start/stop or set amps. Using the manual controls (Start, Stop, Set Amps) automatically switches to this mode.</td>
+                        <td>Debugging, testing, or when you want full manual control.</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Paused</strong></td>
+                        <td>Immediately stops charging and sends a stop command to Tesla. No charging occurs regardless of solar surplus.</td>
+                        <td>When you want to temporarily disable all EV charging.</td>
+                    </tr>
+                </tbody>
+            </table>
+            <p class="help-note">When you use the Manual Controls on the Settings page (Wake Up, Start Charge, Stop Charge, Set Amps), the system automatically switches to Manual mode to prevent the algorithm from overriding your command.</p>
+        </div>
+
+        <!-- 7. How the Algorithm Works -->
+        <div class="section" id="algorithm">
+            <h2>7. How the Algorithm Works</h2>
+            <div class="help-content">
+                <p>The control loop runs every <strong>10 seconds</strong> and follows this decision process:</p>
+
+                <h4>Step 1: Calculate Surplus</h4>
+                <div class="help-formula">
+                    <code>house_load = total_load - current_ev_draw</code><br>
+                    <code>solar_surplus = pv_power - house_load - battery_protection_buffer</code>
+                </div>
+                <p>The current EV draw is subtracted from load to avoid counting it twice. The buffer (default 200W) prevents the battery from being drained.</p>
+
+                <h4>Step 2: Apply Penalties (with time-based filters)</h4>
+                <p>Both battery and grid penalties use configurable time delays to avoid reacting to brief transient spikes:</p>
+                <ul>
+                    <li><strong>Battery discharge penalty:</strong> If battery discharge exceeds the threshold (default 500W) for longer than the <em>Battery Penalty Delay</em> (default 30s), the excess is subtracted from available power. Once active, the penalty remains until discharge stays below the threshold for the <em>Battery Recovery Delay</em> (default 60s).</li>
+                    <li><strong>Grid import penalty:</strong> If grid import exceeds the limit (default 200W) for longer than the <em>Grid Penalty Delay</em> (default 30s), the excess is subtracted from available power. Once active, the penalty remains until import stays below the limit for the <em>Grid Recovery Delay</em> (default 60s).</li>
+                </ul>
+                <p>This prevents short transients (e.g., a kettle boiling for 20 seconds) from causing unnecessary ramp-downs. Set delays to 0 for immediate (legacy) behavior.</p>
+
+                <h4>Step 3: Convert to Amps</h4>
+                <div class="help-formula">
+                    <code>target_amps = available_watts / (voltage &times; phases)</code>
+                </div>
+                <p>For a single-phase 230V charger: 2300W surplus = 10A. For 3-phase: 2300W = ~3.3A.</p>
+
+                <h4>Step 4: Apply Constraints</h4>
+                <ul>
+                    <li>Clamped between <strong>min_charge_amps</strong> (default 6A) and <strong>max_charge_amps</strong> (default 16A)</li>
+                    <li>If target is below minimum &rarr; stop charging (most EVs can't charge below ~6A)</li>
+                    <li>Ramp up is gradual: max +2A per cycle (prevents oscillation)</li>
+                    <li>Ramp down is faster: max -4A per cycle (safety priority)</li>
+                </ul>
+
+                <h4>Step 5: Safety Checks</h4>
+                <table class="help-table">
+                    <thead>
+                        <tr><th>Check</th><th>Condition</th><th>Action</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>Low battery</td>
+                            <td>Battery SoC &lt; min_battery_soc (25%)</td>
+                            <td>Stop charging immediately. Lockout until SoC recovers to min + hysteresis (30%)</td>
+                        </tr>
+                        <tr>
+                            <td>Emergency grid</td>
+                            <td>Grid import &gt; emergency_grid_limit (500W)</td>
+                            <td>Stop charging immediately</td>
+                        </tr>
+                        <tr>
+                            <td>EV not plugged in</td>
+                            <td>Car disconnected</td>
+                            <td>Hold at 0A, no commands sent</td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <h4>Hysteresis</h4>
+                <p>When battery SoC drops below the minimum, a <strong>lockout</strong> is activated. Charging will not resume until SoC rises above <code>min_battery_soc + battery_soc_hysteresis</code> (default: 25% + 5% = 30%). This prevents rapid start/stop cycling.</p>
+
+                <h4>Auto-Wake &amp; Proxy Session Management</h4>
+                <p>Before sending any command, the app checks the vehicle state via the Fleet API (lightweight, no signing). If the car is asleep, it wakes the vehicle and waits up to 30 seconds for it to come online. Additionally, if the car has been through a sleep cycle since the last proxy restart, the app proactively deletes the proxy's session cache and restarts the proxy container to force fresh session negotiation. This prevents stale signed commands from reaching the car, which could trigger key revocation.</p>
+
+                <h4>API Rate Limiting</h4>
+                <p>Commands are only sent to Tesla when the target amps actually changes. The vehicle is polled at most every 60 seconds. This keeps API usage well within Tesla's limits (~200 requests/day).</p>
+            </div>
+        </div>
+
+        <!-- 8. Settings Reference -->
+        <div class="section" id="settings">
+            <h2>8. Settings Reference</h2>
+            <table class="help-table">
+                <thead>
+                    <tr><th>Setting</th><th>Default</th><th>Description</th></tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><strong>Min Battery SoC</strong></td>
+                        <td>25%</td>
+                        <td>Stop EV charging if home battery drops below this level. Protects your home batteries from being drained by the car.</td>
+                    </tr>
+                    <tr>
+                        <td><strong>SoC Hysteresis</strong></td>
+                        <td>5%</td>
+                        <td>After a low-battery lockout, charging only resumes when SoC reaches min + this value. Prevents rapid cycling.</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Max Grid Import</strong></td>
+                        <td>200 W</td>
+                        <td>The algorithm reduces EV charging if grid import exceeds this. Set to 0 for strict zero-grid mode.</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Emergency Grid Limit</strong></td>
+                        <td>500 W</td>
+                        <td>Hard stop: if grid import exceeds this, EV charging stops immediately regardless of other conditions.</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Min Charge Amps</strong></td>
+                        <td>6 A</td>
+                        <td>Minimum viable charging current. Below this, the car is paused. Most EVs require at least 5-6A.</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Max Charge Amps</strong></td>
+                        <td>16 A</td>
+                        <td>Upper limit for charging current. Set based on your charger and wiring capacity.</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Ramp Up Step</strong></td>
+                        <td>2 A/cycle</td>
+                        <td>Maximum amps increase per 10-second cycle. Lower values = smoother but slower response.</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Ramp Down Step</strong></td>
+                        <td>4 A/cycle</td>
+                        <td>Maximum amps decrease per cycle. Faster than ramp-up for safety (responds quickly to clouds, load spikes).</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Charger Phases</strong></td>
+                        <td>1 (Single)</td>
+                        <td>Number of AC phases your charger uses. Single-phase = 230W per amp. Three-phase = 690W per amp.</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Charger Voltage</strong></td>
+                        <td>230 V</td>
+                        <td>Your local mains voltage. Used to convert watts to amps.</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Battery Protection Buffer</strong></td>
+                        <td>200 W</td>
+                        <td>Reserved power headroom. Subtracted from surplus to prevent borderline battery discharge.</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Battery Discharge Threshold</strong></td>
+                        <td>500 W</td>
+                        <td>Battery discharge above this triggers a penalty that reduces available EV charging power (after the penalty delay).</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Battery Penalty Delay</strong></td>
+                        <td>30 s</td>
+                        <td>Battery discharge must exceed the threshold for this many seconds before the penalty activates. Prevents transient spikes (e.g., appliance startup) from affecting charging. Set to 0 for immediate reaction.</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Battery Recovery Delay</strong></td>
+                        <td>60 s</td>
+                        <td>Battery discharge must stay below the threshold for this many seconds before the penalty clears. Prevents rapid on/off oscillation. Set to 0 for immediate recovery.</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Grid Penalty Delay</strong></td>
+                        <td>30 s</td>
+                        <td>Grid import must exceed the limit for this many seconds before the penalty activates. Filters out brief grid import spikes.</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Grid Recovery Delay</strong></td>
+                        <td>60 s</td>
+                        <td>Grid import must stay below the limit for this many seconds before the penalty clears. Prevents oscillation when grid import is near the threshold.</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- 9. Scheduling -->
+        <div class="section" id="schedules">
+            <h2>9. Scheduling</h2>
+            <div class="help-content">
+                <p>Schedules allow you to ensure the car reaches a target SoC by a specific time, even if grid power is needed.</p>
+
+                <h4>Creating a Schedule</h4>
+                <p>On the <a href="/settings.html">Settings</a> page, scroll to "Charging Schedules" and fill in:</p>
+                <table class="help-table">
+                    <thead>
+                        <tr><th>Field</th><th>Example</th><th>Description</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr><td>Name</td><td>Night charge</td><td>Label for this schedule</td></tr>
+                        <tr><td>Start Time</td><td>22:00</td><td>When this schedule becomes active</td></tr>
+                        <tr><td>End Time</td><td>06:00</td><td>Deadline for reaching target SoC. Overnight schedules (start &gt; end) are supported.</td></tr>
+                        <tr><td>Target SoC</td><td>80%</td><td>Desired Tesla battery level by end time</td></tr>
+                        <tr><td>Allow Grid</td><td>Yes</td><td>If Yes, grid power is used when solar is insufficient to meet the deadline</td></tr>
+                        <tr><td>Max Grid Amps</td><td>16 A</td><td>Maximum amps when charging from grid (only applies if Allow Grid = Yes)</td></tr>
+                        <tr><td>Days</td><td>mon,tue,wed,thu,fri</td><td>Comma-separated days, or <code>*</code> for every day. Use 3-letter lowercase: mon, tue, wed, thu, fri, sat, sun.</td></tr>
+                    </tbody>
+                </table>
+
+                <h4>How Schedules Work</h4>
+                <ol>
+                    <li>When a schedule is active and mode is Solar Only, the system automatically switches to Schedule behavior.</li>
+                    <li>The app calculates the charging rate needed to reach the target SoC by the end time.</li>
+                    <li>If solar surplus is enough, it charges from solar (same as Solar Only mode).</li>
+                    <li>If solar is insufficient and "Allow Grid" is enabled, grid power is used up to the configured max grid amps.</li>
+                    <li>If the car already meets or exceeds the target SoC, the schedule has no effect.</li>
+                </ol>
+
+                <h4>Example Scenarios</h4>
+                <div class="help-grid">
+                    <div class="help-card">
+                        <h4>Cheap Night Rate</h4>
+                        <p>Schedule: 22:00-05:00, Target 80%, Allow Grid, Max 32A, Days: *</p>
+                        <p>Charges at full speed from cheap grid power every night.</p>
+                    </div>
+                    <div class="help-card">
+                        <h4>Weekday Morning Ready</h4>
+                        <p>Schedule: 04:00-07:00, Target 60%, Allow Grid, Max 16A, Days: mon,tue,wed,thu,fri</p>
+                        <p>Ensures at least 60% by 7am on workdays, using grid only if needed.</p>
+                    </div>
+                    <div class="help-card">
+                        <h4>Weekend Solar Top-Up</h4>
+                        <p>Schedule: 09:00-16:00, Target 90%, No Grid, Days: sat,sun</p>
+                        <p>Solar-only charging on weekends with a higher target.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 10. Logger -->
+        <div class="section" id="logger">
+            <h2>10. Logger</h2>
+            <div class="help-content">
+                <p>The <a href="/logger.html">Logger</a> tab shows a real-time event log of all workflow events happening in the system. Events are stored in an in-memory ring buffer (last 500 events) and are cleared on app restart.</p>
+
+                <h4>Event Categories</h4>
+                <table class="help-table">
+                    <thead>
+                        <tr><th>Category</th><th>Events</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><strong>System</strong></td>
+                            <td>Worker started/stopped, mode changes, control loop errors</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Algorithm</strong></td>
+                            <td>Charging decisions: surplus calculations, amps increased/decreased, insufficient surplus, battery lockout</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Tesla</strong></td>
+                            <td>Commands sent (set amps, start/stop charging), wake-up attempts, command success/failure</td>
+                        </tr>
+                        <tr>
+                            <td><strong>MQTT</strong></td>
+                            <td>Broker connection/disconnection events</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Schedule</strong></td>
+                            <td>Schedule activation/deactivation</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Manual</strong></td>
+                            <td>All user-initiated commands: start/stop charging, set amps, wake, lock/unlock, climate, trunk, flash lights, honk, sentry mode, windows, seat heaters, defrost, charge limit, charge port. Logs both the intent and the success/failure result.</td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <h4>Features</h4>
+                <ul>
+                    <li><strong>Category filters:</strong> Click a category button to show only events of that type. Click "All" to show everything.</li>
+                    <li><strong>Auto-refresh:</strong> Enabled by default, polls for new events every 5 seconds. Toggle the checkbox to disable.</li>
+                    <li><strong>Clear:</strong> Removes all events from the buffer.</li>
+                    <li><strong>Event levels:</strong> Events are color-coded by severity &mdash; info, success (green), warning (amber), and error (red).</li>
+                </ul>
+                <p>The logger only logs meaningful state transitions. Repeated identical decisions (e.g., "holding at 0A" every 10 seconds) are deduplicated to keep the log clean.</p>
+            </div>
+        </div>
+
+        <!-- 11. Tesla API Setup -->
+        <div class="section" id="tesla-setup">
+            <h2>11. Tesla API Setup</h2>
+            <div class="help-content">
+                <p>This app uses the <strong>Tesla Fleet API</strong> (OAuth2) with the <strong>Vehicle Command Protocol</strong> (signed commands via <code>tesla-http-proxy</code>) to control your vehicle.</p>
+
+                <h4>Architecture</h4>
+                <div class="help-grid">
+                    <div class="help-card">
+                        <h4>Fleet API (Cloud)</h4>
+                        <p>Used for reading vehicle data (SoC, charge state, amps). Requires OAuth2 tokens.</p>
+                    </div>
+                    <div class="help-card">
+                        <h4>HTTP Proxy (Local)</h4>
+                        <p>The <code>tesla-http-proxy</code> Docker container signs commands with your private key. Required for set_amps, start/stop charging.</p>
+                    </div>
+                </div>
+
+                <h4>Step 1: Register a Tesla Developer App</h4>
+                <ol>
+                    <li>Go to <strong>developer.tesla.com</strong> and sign in with your Tesla account.</li>
+                    <li>Register a new application.</li>
+                    <li>Set the <strong>Redirect URI</strong> to: <code>https://my.home-assistant.io/redirect/oauth</code></li>
+                    <li>Request the following scopes: <code>openid</code>, <code>offline_access</code>, <code>vehicle_device_data</code>, <code>vehicle_cmds</code>, <code>vehicle_charging_cmds</code></li>
+                    <li>Note your <strong>Client ID</strong> and <strong>Client Secret</strong>.</li>
+                </ol>
+
+                <h4>Step 2: Generate Fleet API Key Pair</h4>
+                <p>Generate an EC private key (secp256r1/prime256v1):</p>
+                <div class="help-code">
+                    <code>openssl ecparam -name prime256v1 -genkey -noout -out tesla_fleet.key</code><br>
+                    <code>openssl ec -in tesla_fleet.key -pubout -out tesla_fleet.pub</code>
+                </div>
+                <p>Host the public key at <code>https://your-domain/.well-known/appspecific/com.tesla.3p.public-key.pem</code>. The private key goes into the project root as <code>tesla_fleet.key</code> and is used by the HTTP proxy to sign commands.</p>
+
+                <h4>Step 3: Generate TLS Certs for the Proxy</h4>
+                <div class="help-code">
+                    <code>mkdir -p tesla-proxy-certs</code><br>
+                    <code>openssl ecparam -name prime256v1 -genkey -noout -out tesla-proxy-certs/tls-key.pem</code><br>
+                    <code>openssl req -new -x509 -key tesla-proxy-certs/tls-key.pem \</code><br>
+                    <code>&nbsp;&nbsp;-out tesla-proxy-certs/tls-cert.pem -days 365 -subj "/CN=localhost"</code>
+                </div>
+
+                <h4>Step 4: Configure the App</h4>
+                <p>Edit the <code>.env</code> file and set these values:</p>
+                <div class="help-code">
+                    <code>TESLA_CLIENT_ID=your-client-id-here</code><br>
+                    <code>TESLA_CLIENT_SECRET=your-client-secret-here</code><br>
+                    <code>TESLA_PROXY_URL=https://localhost:4443</code>
+                </div>
+
+                <h4>Step 5: Start Services &amp; Authorize</h4>
+                <div class="help-code">
+                    <code>cd /home/vitaliy/projects/tesla-solar-charger && docker compose up -d</code>
+                </div>
+                <p>Then go to <a href="/settings.html">Settings</a> and complete the two-step OAuth flow:</p>
+                <ol>
+                    <li>Click <strong>Open Tesla Login</strong> &mdash; signs in via Tesla in a new tab.</li>
+                    <li>After redirect, copy the <code>code</code> parameter from the URL bar.</li>
+                    <li>Paste it into the authorization code field and click <strong>Connect</strong>.</li>
+                </ol>
+                <p>This uses the Home Assistant OAuth redirect relay (<code>https://my.home-assistant.io/redirect/oauth</code>), which forwards back to your local instance.</p>
+
+                <h4>Token Management</h4>
+                <p>Tokens are stored in the SQLite database and automatically refreshed before expiry. If you ever need to re-authorize, the Connect Tesla button will appear on the Settings page when tokens are missing or expired.</p>
+
+                <h4>Docker Services</h4>
+                <table class="help-table">
+                    <thead>
+                        <tr><th>Container</th><th>Image</th><th>Purpose</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><code>tesla-solar-charger</code></td>
+                            <td>Custom (FastAPI)</td>
+                            <td>Main app: web UI, API, MQTT subscriber, charging algorithm worker</td>
+                        </tr>
+                        <tr>
+                            <td><code>tesla-solar-charger-redis</code></td>
+                            <td>redis:7-alpine</td>
+                            <td>MQTT state cache</td>
+                        </tr>
+                        <tr>
+                            <td><code>tesla-http-proxy</code></td>
+                            <td>tesla/vehicle-command</td>
+                            <td>Signs vehicle commands with your Fleet API private key (port 4443)</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- 12. MQTT Topics Reference -->
+        <div class="section" id="mqtt-topics">
+            <h2>12. MQTT Topics Reference</h2>
+            <div class="help-content">
+                <p>All topics are under <code>solar_assistant/</code> and end with <code>/state</code>. The app subscribes to all of them but primarily uses these for the charging algorithm:</p>
+                <table class="help-table">
+                    <thead>
+                        <tr><th>Topic</th><th>Unit</th><th>Usage</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr><td><code>inverter_1/pv_power</code></td><td>W</td><td>Total solar generation - primary input for surplus calculation</td></tr>
+                        <tr><td><code>inverter_1/load_power</code></td><td>W</td><td>Total house load - subtracted from PV to determine surplus</td></tr>
+                        <tr><td><code>inverter_1/grid_power_ct</code></td><td>W</td><td>Grid power via CT clamp - used for grid protection</td></tr>
+                        <tr><td><code>total/battery_power</code></td><td>W</td><td>Battery flow (negative = discharging) - used for battery protection</td></tr>
+                        <tr><td><code>total/battery_state_of_charge</code></td><td>%</td><td>Combined battery SoC - compared against min_battery_soc</td></tr>
+                        <tr><td><code>inverter_1/battery_voltage</code></td><td>V</td><td>Battery bus voltage</td></tr>
+                        <tr><td><code>inverter_1/battery_current</code></td><td>A</td><td>Battery current</td></tr>
+                    </tbody>
+                </table>
+                <p>Additional topics displayed on the Inverter page include per-battery stats (SoC, voltage, current, temperature, cycles, cell voltages), inverter operating parameters, and daily energy totals.</p>
+            </div>
+        </div>
+
+        <!-- 13. Troubleshooting -->
+        <div class="section" id="troubleshooting">
+            <h2>13. Troubleshooting</h2>
+            <table class="help-table">
+                <thead>
+                    <tr><th>Problem</th><th>Possible Cause</th><th>Solution</th></tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>All dashboard values show 0</td>
+                        <td>MQTT not connected or Redis empty</td>
+                        <td>Check container logs: <code>docker logs tesla-solar-charger</code>. Verify <code>192.168.1.50:1883</code> is reachable. Check the <a href="/logger.html">Logger</a> for MQTT connection events.</td>
+                    </tr>
+                    <tr>
+                        <td>Tesla shows "Not connected"</td>
+                        <td>Missing API credentials or expired tokens</td>
+                        <td>Verify TESLA_CLIENT_ID and TESLA_CLIENT_SECRET in <code>.env</code>. Click Open Tesla Login on Settings page to re-authorize.</td>
+                    </tr>
+                    <tr>
+                        <td>Tesla commands return 403 Forbidden</td>
+                        <td>Missing <code>tesla-http-proxy</code> or wrong key</td>
+                        <td>Vehicle commands require signed requests. Check that the <code>tesla-http-proxy</code> container is running: <code>docker ps</code>. Verify <code>tesla_fleet.key</code> matches the public key registered with Tesla.</td>
+                    </tr>
+                    <tr>
+                        <td>Commands fail with "vehicle offline/asleep"</td>
+                        <td>Vehicle is sleeping and auto-wake failed</td>
+                        <td>Try the <strong>Wake Up</strong> button on Settings page. Check <a href="/logger.html">Logger</a> for wake-up attempt details. The proxy needs the car to be online to send commands.</td>
+                    </tr>
+                    <tr>
+                        <td>Tesla removes your key after sleep/wake</td>
+                        <td>Proxy sent a stale-signed command to the car</td>
+                        <td>The app proactively restarts the proxy and clears its session cache whenever the car transitions from asleep to online. If this still occurs, check the Logger for "Proxy session stale" events. Re-add the key via QR code in the Tesla app. As a last resort, recreate the proxy container: <code>docker compose up -d --force-recreate tesla-proxy</code>.</td>
+                    </tr>
+                    <tr>
+                        <td>Charging doesn't start despite surplus</td>
+                        <td>Surplus below minimum amps threshold</td>
+                        <td>Check if surplus &gt; min_charge_amps &times; voltage (e.g., 6A &times; 230V = 1380W needed). Lower min_charge_amps or wait for more sun.</td>
+                    </tr>
+                    <tr>
+                        <td>Charging starts and stops repeatedly</td>
+                        <td>Surplus is right at the threshold</td>
+                        <td>Increase battery_protection_buffer to add more headroom. Consider increasing battery_soc_hysteresis.</td>
+                    </tr>
+                    <tr>
+                        <td>Battery draining while EV charges</td>
+                        <td>Algorithm is reacting but surplus changed quickly</td>
+                        <td>Reduce ramp_up_step to slow down increases. Increase battery_discharge_threshold to be more aggressive about cutting back.</td>
+                    </tr>
+                    <tr>
+                        <td>Grid import too high during charging</td>
+                        <td>max_grid_import setting too generous</td>
+                        <td>Lower max_grid_import_w (set to 0 for strict solar-only). Lower emergency_grid_limit_w for a faster hard stop.</td>
+                    </tr>
+                    <tr>
+                        <td>Algorithm overrides manual start/stop</td>
+                        <td>Mode is Solar Only, not Manual</td>
+                        <td>Use the Manual Controls on the Settings page &mdash; they automatically switch to Manual mode. Or click the Manual button on the Dashboard mode bar first.</td>
+                    </tr>
+                    <tr>
+                        <td>Schedule doesn't activate</td>
+                        <td>Wrong time/day or mode not set</td>
+                        <td>Verify schedule is enabled. Check that days_of_week matches today (use 3-letter lowercase). The system time must be correct (check TZ setting).</td>
+                    </tr>
+                    <tr>
+                        <td>WebSocket not updating</td>
+                        <td>Browser connection dropped</td>
+                        <td>Refresh the page. The WebSocket auto-reconnects every 3 seconds.</td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <h4>Viewing Logs</h4>
+            <p>Use the <a href="/logger.html">Logger</a> tab for workflow events (algorithm decisions, Tesla commands, MQTT status). For detailed debug logs:</p>
+            <div class="help-code">
+                <code>ssh vitaliy@your-server</code><br>
+                <code>docker logs tesla-solar-charger --tail 100 -f</code>
+            </div>
+            <p>To check the Tesla HTTP proxy:</p>
+            <div class="help-code">
+                <code>docker logs tesla-http-proxy --tail 50 -f</code>
+            </div>
+
+            <h4>Restarting the App</h4>
+            <div class="help-code">
+                <code>cd /home/vitaliy/projects/tesla-solar-charger</code><br>
+                <code>docker compose restart</code>
+            </div>
+
+            <h4>Full Rebuild &amp; Redeploy</h4>
+            <div class="help-code">
+                <code>cd /home/vitaliy/projects/tesla-solar-charger</code><br>
+                <code>docker compose up -d --build</code>
+            </div>
+        </div>
+
+    </main>
+    <script src="/js/nav.js"></script>
+</body>
+</html>

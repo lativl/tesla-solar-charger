@@ -1,0 +1,54 @@
+services:
+  app:
+    build: .
+    container_name: tesla-solar-charger
+    restart: unless-stopped
+    network_mode: host
+    env_file: .env
+    environment:
+      - TZ=${TZ:-Europe/Kyiv}
+      - TESLA_PROXY_URL=https://localhost:4443
+    volumes:
+      - ./data:/app/data
+      - ./tesla_fleet.key:/app/tesla_fleet.key:ro
+      - ./tesla-proxy-certs:/app/proxy-certs:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      redis:
+        condition: service_healthy
+      tesla-proxy:
+        condition: service_started
+
+  tesla-proxy:
+    image: tesla/vehicle-command:latest
+    container_name: tesla-http-proxy
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      - TESLA_VERBOSE=1
+    volumes:
+      - ./tesla_fleet.key:/config/fleet-key.pem
+      - ./tesla-proxy-certs:/config/certs
+    tmpfs:
+      - /home/nonroot:size=1m,uid=65532,gid=65532
+    command:
+      - -key-file
+      - /config/fleet-key.pem
+      - -cert
+      - /config/certs/tls-cert.pem
+      - -tls-key
+      - /config/certs/tls-key.pem
+      - -port
+      - "4443"
+
+  redis:
+    image: redis:7-alpine
+    container_name: tesla-solar-charger-redis
+    restart: unless-stopped
+    ports:
+      - "6380:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 3

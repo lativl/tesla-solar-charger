@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>Tesla Solar Charger</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/css/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+</head>
+<body>
+    <nav>
+        <h1>&#9889; Tesla Solar Charger</h1>
+        <div class="nav-links">
+            <a href="/" class="active">Dashboard</a>
+            <a href="/inverter.html">Inverter</a>
+            <a href="/vehicle.html" id="vehicle-tab">Vehicle</a>
+            <a href="/settings.html">Settings</a>
+            <a href="/logger.html">Logger</a>
+            <a href="/help.html">Help</a>
+        </div>
+    </nav>
+
+    <main>
+        <!-- Mode indicator -->
+        <div class="mode-bar">
+            <span>Mode: <strong id="mode">--</strong></span>
+            <div class="mode-buttons">
+                <button onclick="setMode('solar_only')" class="btn btn-solar">Solar Only</button>
+                <button onclick="setMode('schedule')" class="btn btn-schedule">Schedule</button>
+                <button onclick="setMode('manual')" class="btn btn-manual">Manual</button>
+                <button onclick="setMode('paused')" class="btn btn-pause">Pause</button>
+            </div>
+        </div>
+
+        <!-- Gauges -->
+        <div class="gauges-grid">
+            <div class="gauge-card">
+                <div class="gauge-label">Solar</div>
+                <div class="gauge-container">
+                    <svg viewBox="0 0 200 180" class="gauge-svg">
+                        <path class="gauge-track" d="M 43.4 156.6 A 80 80 0 1 1 156.6 156.6"/>
+                        <path id="gauge-solar-arc" class="gauge-fill" d="M 43.4 156.6 A 80 80 0 1 1 156.6 156.6" stroke="var(--solar)"/>
+                    </svg>
+                    <div class="gauge-text">
+                        <div class="gauge-value" id="gauge-solar-val">0</div>
+                        <div class="gauge-watts" id="gauge-solar-watts">0 W</div>
+                    </div>
+                </div>
+                <div class="gauge-max">12 kW</div>
+            </div>
+            <div class="gauge-card">
+                <div class="gauge-label">Battery</div>
+                <div class="gauge-container">
+                    <svg viewBox="0 0 200 180" class="gauge-svg">
+                        <path class="gauge-track" d="M 43.4 156.6 A 80 80 0 1 1 156.6 156.6"/>
+                        <path id="gauge-battery-arc" class="gauge-fill" d="M 43.4 156.6 A 80 80 0 1 1 156.6 156.6" stroke="var(--battery)"/>
+                    </svg>
+                    <div class="gauge-text">
+                        <div class="gauge-value" id="gauge-battery-val">0</div>
+                        <div class="gauge-watts" id="gauge-battery-watts">0 W</div>
+                    </div>
+                </div>
+                <div class="gauge-max">12 kW</div>
+            </div>
+            <div class="gauge-card">
+                <div class="gauge-label">Grid</div>
+                <div class="gauge-container">
+                    <svg viewBox="0 0 200 180" class="gauge-svg">
+                        <path class="gauge-track" d="M 43.4 156.6 A 80 80 0 1 1 156.6 156.6"/>
+                        <path id="gauge-grid-arc" class="gauge-fill" d="M 43.4 156.6 A 80 80 0 1 1 156.6 156.6" stroke="var(--grid)"/>
+                    </svg>
+                    <div class="gauge-text">
+                        <div class="gauge-value" id="gauge-grid-val">0</div>
+                        <div class="gauge-watts" id="gauge-grid-watts">0 W</div>
+                    </div>
+                </div>
+                <div class="gauge-max">12 kW</div>
+            </div>
+            <div class="gauge-card">
+                <div class="gauge-label">Home Load</div>
+                <div class="gauge-container">
+                    <svg viewBox="0 0 200 180" class="gauge-svg">
+                        <path class="gauge-track" d="M 43.4 156.6 A 80 80 0 1 1 156.6 156.6"/>
+                        <path id="gauge-load-arc" class="gauge-fill" d="M 43.4 156.6 A 80 80 0 1 1 156.6 156.6" stroke="var(--load)"/>
+                    </svg>
+                    <div class="gauge-text">
+                        <div class="gauge-value" id="gauge-load-val">0</div>
+                        <div class="gauge-watts" id="gauge-load-watts">0 W</div>
+                    </div>
+                </div>
+                <div class="gauge-max">12 kW</div>
+            </div>
+            <div class="gauge-card">
+                <div class="gauge-label">Tesla</div>
+                <div class="gauge-container">
+                    <svg viewBox="0 0 200 180" class="gauge-svg">
+                        <path class="gauge-track" d="M 43.4 156.6 A 80 80 0 1 1 156.6 156.6"/>
+                        <path id="gauge-tesla-arc" class="gauge-fill" d="M 43.4 156.6 A 80 80 0 1 1 156.6 156.6" stroke="var(--battery)"/>
+                    </svg>
+                    <div class="gauge-text">
+                        <div class="gauge-value" id="gauge-tesla-val">0</div>
+                        <div class="gauge-watts" id="gauge-tesla-watts">0 W</div>
+                    </div>
+                </div>
+                <div class="gauge-max">7 kW</div>
+            </div>
+        </div>
+
+        <!-- Power flow cards -->
+        <div class="power-flow">
+            <div class="flow-card solar">
+                <div class="flow-icon">&#9728;&#65039;</div>
+                <div class="flow-label">Solar</div>
+                <div class="flow-value" id="pv-power">-- W</div>
+                <div class="flow-sub">
+                    <span>PV1: <span id="pv1">--</span>W</span>
+                    <span>PV2: <span id="pv2">--</span>W</span>
+                </div>
+            </div>
+            <div class="flow-card battery">
+                <div class="flow-icon">&#128267;</div>
+                <div class="flow-label">Battery</div>
+                <div class="flow-value" id="battery-soc">-- %</div>
+                <div class="flow-sub">
+                    <span id="battery-power">-- W</span>
+                    <span id="battery-voltage">-- V</span>
+                </div>
+            </div>
+            <div class="flow-card grid">
+                <div class="flow-icon">&#9889;</div>
+                <div class="flow-label">Grid</div>
+                <div class="flow-value" id="grid-power">-- W</div>
+                <div class="flow-sub">
+                    <span id="grid-voltage">-- V</span>
+                    <span id="grid-freq">-- Hz</span>
+                </div>
+            </div>
+            <div class="flow-card ev">
+                <div class="flow-icon">&#128664;</div>
+                <div class="flow-label">Tesla EV</div>
+                <div class="flow-value" id="ev-soc">-- %</div>
+                <div class="flow-sub">
+                    <span id="ev-amps">-- A</span>
+                    <span id="ev-state">--</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Charge controls -->
+        <div class="charge-controls">
+            <div class="charge-controls-row">
+                <button onclick="teslaCmd('start')" class="btn btn-solar">Start Charge</button>
+                <button onclick="teslaCmd('stop')" class="btn btn-pause">Stop Charge</button>
+                <div class="amps-slider-group">
+                    <label>Amps: <strong id="amps-display">--</strong>A</label>
+                    <input type="range" id="amps-slider" min="5" max="32" value="5"
+                           oninput="document.getElementById('amps-display').textContent=this.value">
+                    <button onclick="teslaCmd('set_amps')" class="btn btn-primary">Set</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Power History Chart -->
+        <div class="section chart-section">
+            <div class="chart-header">
+                <h2>Power History</h2>
+                <select id="chart-range" onchange="loadChart()">
+                    <option value="6">6 hours</option>
+                    <option value="12">12 hours</option>
+                    <option value="24" selected>24 hours</option>
+                    <option value="48">2 days</option>
+                    <option value="168">7 days</option>
+                </select>
+            </div>
+            <div class="chart-container">
+                <canvas id="power-chart" height="600"></canvas>
+            </div>
+        </div>
+    </main>
+
+    <script src="/js/nav.js"></script>
+    <script src="/js/dashboard.js"></script>
+</body>
+</html>

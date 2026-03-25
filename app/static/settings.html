@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>Settings - Tesla Solar Charger</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+    <nav>
+        <h1>&#9889; Tesla Solar Charger</h1>
+        <div class="nav-links">
+            <a href="/">Dashboard</a>
+            <a href="/inverter.html">Inverter</a>
+            <a href="/vehicle.html" id="vehicle-tab">Vehicle</a>
+            <a href="/settings.html" class="active">Settings</a>
+            <a href="/logger.html">Logger</a>
+            <a href="/help.html">Help</a>
+        </div>
+    </nav>
+
+    <main>
+        <!-- Tesla Connection -->
+        <div class="section">
+            <h2>Tesla Connection</h2>
+            <div id="tesla-status" class="tesla-status">
+                <span id="tesla-connected">Checking...</span>
+            </div>
+
+            <!-- Auth flow (hidden when connected) -->
+            <div id="tesla-auth-section" style="display:none">
+                <p style="margin: 0.5rem 0; color: var(--text-muted); font-size: 0.9rem;">
+                    Click the button below to open Tesla login. After signing in, you'll be redirected
+                    to a Home Assistant page. Copy the <strong>code</strong> parameter from the URL and paste it below.
+                </p>
+                <button onclick="startTeslaAuth()" class="btn btn-primary" id="tesla-auth-btn">1. Open Tesla Login</button>
+                <div style="margin-top: 1rem;">
+                    <label style="font-weight: 500;">2. Paste authorization code:</label>
+                    <div style="display: flex; gap: 0.5rem; margin-top: 0.25rem;">
+                        <input type="text" id="tesla-auth-code" placeholder="Paste code from URL here..." style="flex:1; padding: 0.5rem;">
+                        <button onclick="exchangeTeslaCode()" class="btn btn-primary">Connect</button>
+                    </div>
+                    <p id="tesla-exchange-status" style="margin-top: 0.25rem; font-size: 0.85rem;"></p>
+                </div>
+            </div>
+
+            <div id="tesla-vehicle" class="info-grid" style="display:none">
+                <div class="info-item">
+                    <span class="info-label">Vehicle</span>
+                    <span class="info-value" id="tesla-name">--</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">Battery</span>
+                    <span class="info-value" id="tesla-soc">--</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">State</span>
+                    <span class="info-value" id="tesla-state">--</span>
+                </div>
+            </div>
+            <div class="manual-controls" style="margin-top: 1rem;">
+                <h3>Manual Controls</h3>
+                <button onclick="teslaCmd('wake')" class="btn">Wake Up</button>
+                <button onclick="teslaCmd('start')" class="btn btn-solar">Start Charge</button>
+                <button onclick="teslaCmd('stop')" class="btn btn-pause">Stop Charge</button>
+                <div style="margin-top: 0.5rem;">
+                    <label>Set Amps: </label>
+                    <input type="number" id="manual-amps" value="8" min="1" max="48" style="width:60px">
+                    <button onclick="teslaCmd('set_amps')" class="btn">Apply</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Charger Settings -->
+        <div class="section">
+            <h2>Charger Settings</h2>
+            <form id="settings-form">
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label>Min Battery SoC (%)</label>
+                        <input type="range" name="min_battery_soc" min="10" max="90" value="25"
+                               oninput="this.nextElementSibling.textContent=this.value+'%'">
+                        <span class="range-value">25%</span>
+                    </div>
+                    <div class="form-group">
+                        <label>SoC Hysteresis (%)</label>
+                        <input type="number" name="battery_soc_hysteresis" value="5" min="1" max="20">
+                    </div>
+                    <div class="form-group">
+                        <label>Max Grid Import (W)</label>
+                        <input type="number" name="max_grid_import_w" value="200" min="0" max="5000" step="50">
+                    </div>
+                    <div class="form-group">
+                        <label>Emergency Grid Limit (W)</label>
+                        <input type="number" name="emergency_grid_limit_w" value="500" min="100" max="10000" step="100">
+                    </div>
+                    <div class="form-group">
+                        <label>Min Charge Amps (A)</label>
+                        <input type="number" name="min_charge_amps" value="6" min="1" max="16">
+                    </div>
+                    <div class="form-group">
+                        <label>Max Charge Amps (A)</label>
+                        <input type="number" name="max_charge_amps" value="16" min="6" max="48">
+                    </div>
+                    <div class="form-group">
+                        <label>Ramp Up Step (A/cycle)</label>
+                        <input type="number" name="ramp_up_step" value="2" min="1" max="8">
+                    </div>
+                    <div class="form-group">
+                        <label>Ramp Down Step (A/cycle)</label>
+                        <input type="number" name="ramp_down_step" value="4" min="1" max="16">
+                    </div>
+                    <div class="form-group">
+                        <label>Charger Phases</label>
+                        <select name="charger_phases">
+                            <option value="1">Single Phase</option>
+                            <option value="3">Three Phase</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Charger Voltage (V)</label>
+                        <input type="number" name="charger_voltage" value="230" min="110" max="250">
+                    </div>
+                    <div class="form-group">
+                        <label>Battery Protection Buffer (W)</label>
+                        <input type="number" name="battery_protection_buffer_w" value="200" min="0" max="2000" step="50">
+                    </div>
+                    <div class="form-group">
+                        <label>Battery Discharge Threshold (W)</label>
+                        <input type="number" name="battery_discharge_threshold_w" value="500" min="0" max="5000" step="100">
+                    </div>
+                    <div class="form-group">
+                        <label>Battery Penalty Delay (s)</label>
+                        <input type="number" name="battery_penalty_delay_s" value="30" min="0" max="300" step="10">
+                    </div>
+                    <div class="form-group">
+                        <label>Battery Recovery Delay (s)</label>
+                        <input type="number" name="battery_recovery_delay_s" value="60" min="0" max="300" step="10">
+                    </div>
+                    <div class="form-group">
+                        <label>Grid Penalty Delay (s)</label>
+                        <input type="number" name="grid_penalty_delay_s" value="30" min="0" max="300" step="10">
+                    </div>
+                    <div class="form-group">
+                        <label>Grid Recovery Delay (s)</label>
+                        <input type="number" name="grid_recovery_delay_s" value="60" min="0" max="300" step="10">
+                    </div>
+                </div>
+                <button type="submit" class="btn btn-primary" style="margin-top: 1rem;">Save Settings</button>
+                <span id="save-status" class="save-status"></span>
+            </form>
+        </div>
+
+        <!-- Schedules -->
+        <div class="section">
+            <h2>Charging Schedules</h2>
+            <div id="schedules-list"></div>
+            <h3 style="margin-top:1rem">Add Schedule</h3>
+            <form id="schedule-form" class="form-grid">
+                <div class="form-group">
+                    <label>Name</label>
+                    <input type="text" name="name" placeholder="Night charge" required>
+                </div>
+                <div class="form-group">
+                    <label>Start Time</label>
+                    <input type="time" name="start_time" required>
+                </div>
+                <div class="form-group">
+                    <label>End Time</label>
+                    <input type="time" name="end_time" required>
+                </div>
+                <div class="form-group">
+                    <label>Target SoC (%)</label>
+                    <input type="number" name="target_soc" value="80" min="10" max="100">
+                </div>
+                <div class="form-group">
+                    <label>Allow Grid</label>
+                    <select name="allow_grid">
+                        <option value="false">No</option>
+                        <option value="true">Yes</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Max Grid Amps</label>
+                    <input type="number" name="max_grid_amps" value="16" min="1" max="48">
+                </div>
+                <div class="form-group">
+                    <label>Days</label>
+                    <input type="text" name="days_of_week" value="*" placeholder="* or mon,tue,wed">
+                </div>
+                <div class="form-group" style="align-self: end;">
+                    <button type="submit" class="btn btn-primary">Add Schedule</button>
+                </div>
+            </form>
+        </div>
+    </main>
+
+    <script src="/js/nav.js"></script>
+    <script src="/js/settings.js"></script>
+</body>
+</html>

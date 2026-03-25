@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>Logger - Tesla Solar Charger</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+    <nav>
+        <h1>&#9889; Tesla Solar Charger</h1>
+        <div class="nav-links">
+            <a href="/">Dashboard</a>
+            <a href="/inverter.html">Inverter</a>
+            <a href="/vehicle.html" id="vehicle-tab">Vehicle</a>
+            <a href="/settings.html">Settings</a>
+            <a href="/logger.html" class="active">Logger</a>
+            <a href="/help.html">Help</a>
+        </div>
+    </nav>
+
+    <main>
+        <div class="section">
+            <h2>Event Log</h2>
+            <div class="log-toolbar">
+                <div class="log-filters">
+                    <button class="btn log-filter-btn active" data-cat="all">All</button>
+                    <button class="btn log-filter-btn" data-cat="system">System</button>
+                    <button class="btn log-filter-btn" data-cat="algorithm">Algorithm</button>
+                    <button class="btn log-filter-btn" data-cat="tesla">Tesla</button>
+                    <button class="btn log-filter-btn" data-cat="mqtt">MQTT</button>
+                    <button class="btn log-filter-btn" data-cat="schedule">Schedule</button>
+                    <button class="btn log-filter-btn" data-cat="manual">Manual</button>
+                </div>
+                <div class="log-actions">
+                    <label class="log-auto-label">
+                        <input type="checkbox" id="auto-refresh" checked> Auto-refresh
+                    </label>
+                    <button class="btn" onclick="loadEvents()">Refresh</button>
+                    <button class="btn btn-pause" onclick="clearEvents()">Clear</button>
+                </div>
+            </div>
+            <div id="log-container" class="log-container">
+                <div class="log-empty">Loading events...</div>
+            </div>
+        </div>
+    </main>
+
+    <script src="/js/nav.js"></script>
+    <script src="/js/logger.js"></script>
+</body>
+</html>

@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>Vehicle - Tesla Solar Charger</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+    <nav>
+        <h1>&#9889; Tesla Solar Charger</h1>
+        <div class="nav-links">
+            <a href="/">Dashboard</a>
+            <a href="/inverter.html">Inverter</a>
+            <a href="/vehicle.html" class="active" id="vehicle-tab">Vehicle</a>
+            <a href="/settings.html">Settings</a>
+            <a href="/logger.html">Logger</a>
+            <a href="/help.html">Help</a>
+        </div>
+    </nav>
+
+    <main>
+        <div id="vehicle-offline" style="display:none">
+            <div class="section">
+                <h2>Vehicle</h2>
+                <p style="color: var(--text-muted); text-align: center; padding: 2rem 0;">
+                    Vehicle not connected. Go to <a href="/settings.html">Settings</a> to connect your Tesla.
+                </p>
+            </div>
+        </div>
+
+        <div id="vehicle-content" style="display:none">
+            <!-- Vehicle overview -->
+            <div class="section">
+                <h2 id="vehicle-title">Vehicle</h2>
+                <div class="info-grid">
+                    <div class="info-item">
+                        <span class="info-label">State</span>
+                        <span class="info-value" id="v-state">--</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">Odometer</span>
+                        <span class="info-value" id="v-odometer">--</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">Software</span>
+                        <span class="info-value" id="v-software">--</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">Car Type</span>
+                        <span class="info-value" id="v-car-type">--</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Charging -->
+            <div class="section">
+                <h2>Charging</h2>
+                <div class="info-grid">
+                    <div class="info-item">
+                        <span class="info-label">Battery Level</span>
+                        <span class="info-value" id="v-battery">--</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">Charge Limit</span>
+                        <span class="info-value" id="v-charge-limit">--</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">Charging State</span>
+                        <span class="info-value" id="v-charge-state">--</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">Charge Rate</span>
+                        <span class="info-value" id="v-charge-rate">--</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">Charger Power</span>
+                        <span class="info-value" id="v-charger-power">--</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">Time to Full</span>
+                        <span class="info-value" id="v-time-full">--</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">Range (Est)</span>
+                        <span class="info-value" id="v-range">--</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">Charge Port</span>
+                        <span class="info-value" id="v-charge-port">--</span>
+                    </div>
+                </div>
+                <div class="vehicle-controls" style="margin-top: 1rem;">
+                    <div class="control-row">
+                        <button onclick="cmd('start')" class="btn btn-solar">Start Charge</button>
+                        <button onclick="cmd('stop')" class="btn btn-pause">Stop Charge</button>
+                        <button onclick="cmd('charge_port_open')" class="btn">Open Port</button>
+                        <button onclick="cmd('charge_port_close')" class="btn">Close Port</button>
+                    </div>
+                    <div class="control-row" style="margin-top: 0.75rem;">
+                        <label style="font-size: 13px; font-weight: 500; color: var(--text-secondary);">Charge Limit:</label>
+                        <input type="range" id="charge-limit-slider" min="50" max="100" value="80"
+                               oninput="document.getElementById('charge-limit-display').textContent=this.value"
+                               style="width: 160px; accent-color: var(--accent);">
+                        <strong id="charge-limit-display" style="min-width: 30px;">80</strong>%
+                        <button onclick="setChargeLimit()" class="btn btn-primary">Set</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Climate -->
+            <div class="section">
+                <h2>Climate</h2>
+                <div class="info-grid">
+                    <div class="info-item">
+                        <span class="info-label">Inside Temp</span>
+                        <span class="info-value" id="v-inside-temp">--</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">Outside Temp</span>
+                        <span class="info-value" id="v-outside-temp">--</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">Driver Set</span>
+                        <span class="info-value" id="v-driver-temp">--</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">HVAC</span>
+                        <span class="info-value" id="v-hvac">--</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">Fan Status</span>
+                        <span class="info-value" id="v-fan">--</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">Seat Heater (L)</span>
+                        <span class="info-value" id="v-seat-heater-l">--</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">Seat Heater (R)</span>
+                        <span class="info-value" id="v-seat-heater-r">--</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">Steering Heater</span>
+                        <span class="info-value" id="v-steering-heater">--</span>
+                    </div>
+                </div>
+                <div class="vehicle-controls" style="margin-top: 1rem;">
+                    <div class="control-row">
+                        <button onclick="cmd('climate_start')" class="btn btn-solar">Start Climate</button>
+                        <button onclick="cmd('climate_stop')" class="btn btn-pause">Stop Climate</button>
+                        <button onclick="cmd('defrost',{on:true})" class="btn">Defrost On</button>
+                        <button onclick="cmd('defrost',{on:false})" class="btn">Defrost Off</button>
+                    </div>
+                    <div class="control-row" style="margin-top: 0.75rem;">
+                        <label style="font-size: 13px; font-weight: 500; color: var(--text-secondary);">Temp:</label>
+                        <input type="number" id="climate-temp" value="21" min="15" max="28" step="0.5"
+                               style="width: 70px; padding: 6px 8px; border: 1px solid var(--border); border-radius: var(--radius-sm);">
+                        <span style="font-size: 13px; color: var(--text-muted);">&deg;C</span>
+                        <button onclick="setTemp()" class="btn btn-primary">Set</button>
+                    </div>
+                    <div class="control-row" style="margin-top: 0.75rem;">
+                        <label style="font-size: 13px; font-weight: 500; color: var(--text-secondary);">Seat Heater:</label>
+                        <select id="seat-select" style="padding: 6px 8px; border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: 13px;">
+                            <option value="0">Driver</option>
+                            <option value="1">Passenger</option>
+                            <option value="2">Rear Left</option>
+                            <option value="4">Rear Center</option>
+                            <option value="5">Rear Right</option>
+                        </select>
+                        <select id="seat-level" style="padding: 6px 8px; border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: 13px;">
+                            <option value="0">Off</option>
+                            <option value="1">Low</option>
+                            <option value="2">Medium</option>
+                            <option value="3">High</option>
+                        </select>
+                        <button onclick="setSeatHeater()" class="btn">Set</button>
+                        <button onclick="cmd('steering_wheel_heater',{on:true})" class="btn" title="Steering wheel heater on">SW Heat On</button>
+                        <button onclick="cmd('steering_wheel_heater',{on:false})" class="btn" title="Steering wheel heater off">SW Heat Off</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Security & Access -->
+            <div class="section">
+                <h2>Security & Access</h2>
+                <div class="info-grid">
+                    <div class="info-item">
+                        <span class="info-label">Locked</span>
+                        <span class="info-value" id="v-locked">--</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">Sentry Mode</span>
+                        <span class="info-value" id="v-sentry">--</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">Front Trunk</span>
+                        <span class="info-value" id="v-frunk">--</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">Rear Trunk</span>
+                        <span class="info-value" id="v-trunk">--</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">Driver Door</span>
+                        <span class="info-value" id="v-door-df">--</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">Passenger Door</span>
+                        <span class="info-value" id="v-door-pf">--</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">Rear Left Door</span>
+                        <span class="info-value" id="v-door-dr">--</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">Rear Right Door</span>
+                        <span class="info-value" id="v-door-pr">--</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">Windows</span>
+                        <span class="info-value" id="v-windows">--</span>
+                    </div>
+                </div>
+                <div class="vehicle-controls" style="margin-top: 1rem;">
+                    <div class="control-row">
+                        <button onclick="cmd('door_lock')" class="btn">Lock</button>
+                        <button onclick="cmd('door_unlock')" class="btn btn-solar">Unlock</button>
+                        <button onclick="cmd('sentry_on')" class="btn">Sentry On</button>
+                        <button onclick="cmd('sentry_off')" class="btn">Sentry Off</button>
+                    </div>
+                    <div class="control-row" style="margin-top: 0.5rem;">
+                        <button onclick="cmd('frunk_open')" class="btn">Open Frunk</button>
+                        <button onclick="cmd('trunk_open')" class="btn">Open/Close Trunk</button>
+                        <button onclick="cmd('vent_windows')" class="btn">Vent Windows</button>
+                        <button onclick="cmd('close_windows')" class="btn">Close Windows</button>
+                    </div>
+                    <div class="control-row" style="margin-top: 0.5rem;">
+                        <button onclick="cmd('flash_lights')" class="btn">Flash Lights</button>
+                        <button onclick="cmd('honk_horn')" class="btn">Honk Horn</button>
+                        <button onclick="cmd('wake')" class="btn btn-primary">Wake Up</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Drive State -->
+            <div class="section">
+                <h2>Location & Drive</h2>
+                <div class="info-grid">
+                    <div class="info-item">
+                        <span class="info-label">Speed</span>
+                        <span class="info-value" id="v-speed">--</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">Shift State</span>
+                        <span class="info-value" id="v-shift">--</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">Power</span>
+                        <span class="info-value" id="v-power">--</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">Heading</span>
+                        <span class="info-value" id="v-heading">--</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">Latitude</span>
+                        <span class="info-value" id="v-lat">--</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">Longitude</span>
+                        <span class="info-value" id="v-lon">--</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tires -->
+            <div class="section">
+                <h2>Tire Pressure</h2>
+                <div class="info-grid">
+                    <div class="info-item">
+                        <span class="info-label">Front Left</span>
+                        <span class="info-value" id="v-tire-fl">--</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">Front Right</span>
+                        <span class="info-value" id="v-tire-fr">--</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">Rear Left</span>
+                        <span class="info-value" id="v-tire-rl">--</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">Rear Right</span>
+                        <span class="info-value" id="v-tire-rr">--</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Vehicle Config -->
+            <div class="section">
+                <h2>Vehicle Configuration</h2>
+                <div class="info-grid" id="v-config-grid">
+                </div>
+            </div>
+
+            <!-- Command status toast -->
+            <div id="cmd-toast" class="cmd-toast"></div>
+        </div>
+    </main>
+
+    <script src="/js/vehicle.js"></script>
+</body>
+</html>
