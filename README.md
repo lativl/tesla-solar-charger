@@ -260,4 +260,8 @@ Full documentation is available in the [in-app User Manual](/help.html) at `http
 
 ## License
 
-MIT
+This project is licensed under the [Business Source License 1.1](LICENSE).
+
+- **Free for personal, non-commercial use**
+- Converts to Apache 2.0 four years after each version's release date
+- Contact: vlysov@gmail.com for commercial licensing
