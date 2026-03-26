@@ -88,6 +88,8 @@ class BleTransport(TeslaTransport):
         self._last_state: VehicleState = VehicleState()
         self._reachable: bool = False
         self._current_amps: int = 0  # tracked for 5A stepping quirk
+        self._poll_count: int = 0    # how many get_vehicle_data calls since last force_update
+        self._last_soc: int = 0      # detect when SoC stops changing while state says Charging
 
     def _url(self, entity_path: str) -> str:
         return f"http://{self._host}/{entity_path}"
@@ -127,8 +129,30 @@ class BleTransport(TeslaTransport):
             logger.warning(f"BLE POST {entity_path}: {e}")
             return False
 
+    # How often to trigger force_data_update on the ESP32 (every N polls).
+    # At 30s poll interval this is every ~5 minutes. Keeps data fresh without
+    # keeping Tesla awake constantly.
+    _FORCE_UPDATE_EVERY = 10
+
     async def get_vehicle_data(self) -> VehicleState:
         """Fetch vehicle state from ESPHome sensor endpoints in parallel."""
+        self._poll_count += 1
+
+        # Periodically ask the ESP32 to pull fresh data from Tesla via BLE.
+        # Also trigger immediately if SoC has been frozen while state says Charging —
+        # which means the Tesla stopped broadcasting (e.g. reached charge limit) and
+        # the ESP32 is serving stale cached values.
+        soc_frozen_while_charging = (
+            self._last_state.charge_state == "Charging"
+            and self._last_soc == self._last_state.battery_level
+            and self._last_state.battery_level > 0
+        )
+        if self._poll_count % self._FORCE_UPDATE_EVERY == 1 or soc_frozen_while_charging:
+            await self._post(self._entity_map.get("force_update", "button/force_data_update"))
+            await asyncio.sleep(1.5)  # give ESP32 time to receive BLE response
+
+        self._last_soc = self._last_state.battery_level
+
         keys = ["battery_level", "charging_current", "charging_state",
                 "charge_limit_soc", "charger_voltage", "charger_power", "time_to_full"]
 
