@@ -177,10 +177,20 @@ class BleTransport(TeslaTransport):
         elif raw_upper in TESLA_CHARGE_STATES:
             # Device returns Tesla-style state directly (e.g. "Charging", "Stopped")
             charge_state = raw_state  # preserve original capitalisation
-            is_plugged_in = raw_upper not in ("disconnected", "")
+            is_plugged_in = raw_upper != "DISCONNECTED"
         else:
             charge_state = "Stopped"
             is_plugged_in = False
+
+        # BLE text sensors lag behind when Tesla stops broadcasting after charge completes.
+        # charger_power and charging_current are physical sensors that drop to 0 immediately.
+        # If both read 0 but state still says "Charging", the state sensor is stale — infer
+        # the real state: Complete if SoC has reached the charge limit, else Stopped.
+        if charge_state == "Charging" and charging_amps == 0 and charger_power == 0.0:
+            if battery_level >= charge_limit_soc:
+                charge_state = "Complete"
+            else:
+                charge_state = "Stopped"
 
         self._current_amps = charging_amps
 
