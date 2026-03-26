@@ -19,17 +19,19 @@ logger = logging.getLogger(__name__)
 
 # Core entities used by get_vehicle_data() (charger algorithm)
 DEFAULT_ENTITY_MAP = {
-    "battery_level":      "sensor/battery",
-    "charging_current":   "sensor/charger_current",
-    "charging_state":     "text_sensor/charging",
-    "charge_limit_soc":   "number/charging_limit",
-    "charger_voltage":    "sensor/charger_voltage",
-    "charger_power":      "sensor/charger_power",
-    "charging_switch":    "switch/charger",
-    "charging_amps":      "number/charging_amps",
-    "charge_limit":       "number/charging_limit",
-    "wake_button":        "button/wake_up",
-    "time_to_full":       "sensor/time_to_full",
+    # ESPHome entity-name URLs (new format, required from 2026.7.0).
+    # Names with spaces must be percent-encoded.
+    "battery_level":      "sensor/Battery",
+    "charging_current":   "sensor/Charger%20Current",
+    "charging_state":     "text_sensor/Charging",
+    "charge_limit_soc":   "number/Charging%20Limit",
+    "charger_voltage":    "sensor/Charger%20Voltage",
+    "charger_power":      "sensor/Charger%20Power",
+    "charging_switch":    "switch/Charger",
+    "charging_amps":      "number/Charging%20Amps",
+    "charge_limit":       "number/Charging%20Limit",
+    "wake_button":        "button/Wake%20Up",
+    "time_to_full":       "sensor/Time%20to%20Full",
     # Extended sensors (used by get_full_vehicle_data)
     "charging_rate":      "sensor/charging_rate",
     "energy_added":       "sensor/energy_added",
@@ -88,8 +90,9 @@ class BleTransport(TeslaTransport):
         self._last_state: VehicleState = VehicleState()
         self._reachable: bool = False
         self._current_amps: int = 0  # tracked for 5A stepping quirk
-        self._poll_count: int = 0    # how many get_vehicle_data calls since last force_update
-        self._last_soc: int = 0      # detect when SoC stops changing while state says Charging
+        self._poll_count: int = 0       # total get_vehicle_data calls
+        self._last_soc: int = -1        # SoC from previous poll (for stale-data detection)
+        self._soc_stale_polls: int = 0  # consecutive polls with unchanged SoC while "Charging"
 
     def _url(self, entity_path: str) -> str:
         return f"http://{self._host}/{entity_path}"
@@ -129,29 +132,43 @@ class BleTransport(TeslaTransport):
             logger.warning(f"BLE POST {entity_path}: {e}")
             return False
 
-    # How often to trigger force_data_update on the ESP32 (every N polls).
-    # At 30s poll interval this is every ~5 minutes. Keeps data fresh without
-    # keeping Tesla awake constantly.
+    # Periodic force_data_update interval (every N polls).
+    # At 30s poll interval this fires every ~5 minutes.
     _FORCE_UPDATE_EVERY = 10
+    # How many consecutive polls with unchanged SoC (while "Charging") before
+    # we suspect stale data and trigger an early force_data_update.
+    # 5 polls × 30s = 2.5 minutes — long enough to not fire during normal charging
+    # (SoC changes slowly) but short enough to detect a stopped car promptly.
+    _STALE_SOC_THRESHOLD = 5
 
     async def get_vehicle_data(self) -> VehicleState:
         """Fetch vehicle state from ESPHome sensor endpoints in parallel."""
         self._poll_count += 1
 
-        # Periodically ask the ESP32 to pull fresh data from Tesla via BLE.
-        # Also trigger immediately if SoC has been frozen while state says Charging —
-        # which means the Tesla stopped broadcasting (e.g. reached charge limit) and
-        # the ESP32 is serving stale cached values.
-        soc_frozen_while_charging = (
-            self._last_state.charge_state == "Charging"
-            and self._last_soc == self._last_state.battery_level
-            and self._last_state.battery_level > 0
-        )
-        if self._poll_count % self._FORCE_UPDATE_EVERY == 1 or soc_frozen_while_charging:
-            await self._post(self._entity_map.get("force_update", "button/force_data_update"))
-            await asyncio.sleep(1.5)  # give ESP32 time to receive BLE response
+        # Track how many consecutive polls have had the same SoC while state = "Charging".
+        # SoC can be unchanged for 1-2 polls during normal fast charging, but if it's
+        # frozen for 5+ polls the ESP32 is almost certainly serving stale cached values
+        # (Tesla stopped broadcasting after reaching the charge limit).
+        current_soc = self._last_state.battery_level
+        if (self._last_state.charge_state == "Charging"
+                and self._last_soc == current_soc
+                and current_soc > 0):
+            self._soc_stale_polls += 1
+        else:
+            self._soc_stale_polls = 0
+        self._last_soc = current_soc
 
-        self._last_soc = self._last_state.battery_level
+        stale_detected = self._soc_stale_polls >= self._STALE_SOC_THRESHOLD
+        periodic = self._poll_count % self._FORCE_UPDATE_EVERY == 1
+
+        if stale_detected or periodic:
+            # POST to the ESP32's force_data_update button — tells it to request fresh
+            # BLE data from Tesla. The POST itself returns quickly; the ESP32 handles
+            # the BLE connection asynchronously. Fresh data will appear in the NEXT poll.
+            await self._post(self._entity_map.get("force_update", "button/Force%20Data%20Update"))
+            if stale_detected:
+                logger.info("BLE: stale data detected — triggered force_data_update")
+                self._soc_stale_polls = 0  # reset so we don't spam
 
         keys = ["battery_level", "charging_current", "charging_state",
                 "charge_limit_soc", "charger_voltage", "charger_power", "time_to_full"]

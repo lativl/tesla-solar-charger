@@ -239,8 +239,13 @@ async def _control_loop_tick():
                 _end_session(state.ev_soc)
                 elog("Charging stopped", SUCCESS, "tesla")
             else:
-                logger.warning("Stop command failed — will retry next tick")
-                elog("Stop command failed — will retry", WARN, "tesla")
+                # Mark as sent anyway so we don't hammer BLE on every tick.
+                # If the car is actually still charging, the next data poll will
+                # show ev_charging_amps > 0 and re-sync _last_amps_sent, which
+                # will trigger a fresh stop attempt after the next poll interval.
+                _last_amps_sent = 0
+                logger.warning("Stop command failed (BLE disconnected?) — will retry after next poll")
+                elog("Stop command failed — will retry after next poll", WARN, "tesla")
         elif decision.action in (ChargingAction.START, ChargingAction.INCREASE, ChargingAction.DECREASE):
             elog(f"Setting charging to {decision.target_amps}A", INFO, "tesla")
             ok = await tesla.set_charging_amps(decision.target_amps)
