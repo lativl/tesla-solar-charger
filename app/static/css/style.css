@@ -471,7 +471,15 @@ main {
 }
 
 .chart-container {
+    position: relative;
     width: 100%;
+    height: 320px;
+}
+
+.chart-container canvas {
+    width: 100% !important;
+    height: 100% !important;
+    max-height: none !important;
 }
 
 
@@ -581,7 +589,6 @@ main {
 }
 
 /* ── Chart ───────────────────────────────────────────────── */
-canvas { width: 100% !important; max-height: 350px; }
 
 /* ── Help page ───────────────────────────────────────────── */
 .help-page { max-width: 900px; }
@@ -865,6 +872,7 @@ canvas { width: 100% !important; max-height: 350px; }
     /* Chart */
     .chart-header h2 { font-size: 0.9rem; }
     .chart-header select { font-size: 12px; padding: 0.25rem 0.4rem; }
+    .chart-container { height: 240px; }
 
     /* Sections */
     .section { padding: 0.75rem; margin-bottom: 1rem; border-radius: var(--radius-sm); }
@@ -904,7 +912,7 @@ canvas { width: 100% !important; max-height: 350px; }
     .log-icon { font-size: 11px; width: 16px; }
 
     /* Chart */
-    canvas { max-height: 250px; }
+    .chart-container { height: 200px; }
 
     /* Help page */
     .help-page { max-width: 100%; }
@@ -918,4 +926,23 @@ canvas { width: 100% !important; max-height: 350px; }
     /* Buttons: larger touch targets */
     .btn { padding: 8px 14px; font-size: 12px; min-height: 36px; }
     .btn-primary { min-height: 36px; }
+}
+
+/* ── Landscape phones (album orientation) ────────────────── */
+@media (max-height: 500px) and (orientation: landscape) {
+    nav { flex-direction: row; padding: 0.4rem 1rem; }
+    nav h1 { font-size: 0.9rem; }
+    main { padding: 0.5rem 0.75rem; }
+    .mode-bar { padding: 0.4rem 0.75rem; margin-bottom: 0.75rem; }
+    .gauges-grid { grid-template-columns: repeat(5, 1fr); gap: 0.5rem; margin-bottom: 0.75rem; }
+    .gauge-card { padding: 0.5rem 0.4rem; }
+    .gauge-container { max-width: 100px; }
+    .gauge-value { font-size: 1.2rem; }
+    .gauge-watts { font-size: 9px; }
+    .power-flow { grid-template-columns: repeat(4, 1fr); gap: 0.5rem; margin-bottom: 0.75rem; }
+    .flow-card { padding: 0.5rem; }
+    .flow-icon { font-size: 1.2rem; margin-bottom: 0.1rem; }
+    .flow-value { font-size: 1.1rem; }
+    .chart-container { height: 160px; }
+    .section { padding: 0.5rem 0.75rem; margin-bottom: 0.75rem; }
 }

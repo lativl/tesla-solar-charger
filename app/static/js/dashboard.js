@@ -212,22 +212,35 @@ async function loadChart() {
     if (powerChart) {
         powerChart.data.labels = labels;
         powerChart.data.datasets.forEach((ds, i) => { ds.data = datasets[i].data; });
-        powerChart.options.scales.x.ticks.maxTicksLimit = hours > 24 ? 12 : 20;
+        const isMob = window.innerWidth <= 480;
+        powerChart.options.scales.x.ticks.maxTicksLimit = isMob ? 6 : (hours > 24 ? 12 : 20);
         powerChart.options.scales.yLux.display = hasLux;
+        powerChart.options.scales.yLux.title.display = !isMob && hasLux;
         powerChart.update('none');
         return;
     }
 
     const ctx = document.getElementById('power-chart').getContext('2d');
+    const isMobile = window.innerWidth <= 480;
+    const isLandscape = window.innerWidth > window.innerHeight;
+
     powerChart = new Chart(ctx, {
         type: 'line',
         data: { labels, datasets },
         options: {
             responsive: true,
+            maintainAspectRatio: false,
             interaction: { mode: 'index', intersect: false },
             plugins: {
                 legend: {
-                    labels: { color: '#475569', usePointStyle: true, pointStyle: 'line', padding: 16 },
+                    labels: {
+                        color: '#475569',
+                        usePointStyle: true,
+                        pointStyle: 'line',
+                        padding: isMobile ? 8 : 16,
+                        font: { size: isMobile ? 10 : 12 },
+                        boxWidth: isMobile ? 20 : 40,
+                    },
                 },
                 tooltip: {
                     backgroundColor: 'rgba(15,23,42,0.9)',
@@ -249,21 +262,26 @@ async function loadChart() {
             },
             scales: {
                 x: {
-                    ticks: { color: '#64748b', maxTicksLimit: 20, maxRotation: 45 },
+                    ticks: {
+                        color: '#64748b',
+                        maxTicksLimit: isMobile ? 6 : (hours > 24 ? 12 : 20),
+                        maxRotation: isMobile ? 0 : 45,
+                        font: { size: isMobile ? 9 : 11 },
+                    },
                     grid: { color: 'rgba(226,232,240,0.5)' },
                 },
                 y: {
                     position: 'left',
-                    ticks: { color: '#475569' },
+                    ticks: { color: '#475569', font: { size: isMobile ? 9 : 11 } },
                     grid: { color: 'rgba(226,232,240,0.5)' },
-                    title: { display: true, text: 'Watts', color: '#475569' },
+                    title: { display: !isMobile, text: 'Watts', color: '#475569' },
                 },
                 yLux: {
                     position: 'right',
                     display: hasLux,
-                    ticks: { color: '#eab308' },
+                    ticks: { color: '#eab308', font: { size: isMobile ? 9 : 11 } },
                     grid: { drawOnChartArea: false },
-                    title: { display: true, text: 'Lux', color: '#eab308' },
+                    title: { display: !isMobile && hasLux, text: 'Lux', color: '#eab308' },
                 },
             },
         },

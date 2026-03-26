@@ -6,7 +6,7 @@ load_dotenv()
 
 class Settings:
     # MQTT
-    MQTT_HOST: str = os.getenv("MQTT_HOST", "192.168.1.50")
+    MQTT_HOST: str = os.getenv("MQTT_HOST", "")
     MQTT_PORT: int = int(os.getenv("MQTT_PORT", "1883"))
     MQTT_TOPIC_PREFIX: str = os.getenv("MQTT_TOPIC_PREFIX", "solar_assistant")
 
@@ -17,7 +17,7 @@ class Settings:
     TESLA_CLIENT_ID: str = os.getenv("TESLA_CLIENT_ID", "")
     TESLA_CLIENT_SECRET: str = os.getenv("TESLA_CLIENT_SECRET", "")
     TESLA_REDIRECT_URI: str = os.getenv(
-        "TESLA_REDIRECT_URI", "http://your-server:5050/api/tesla/callback"
+        "TESLA_REDIRECT_URI", ""
     )
     TESLA_AUDIENCE: str = os.getenv(
         "TESLA_AUDIENCE", "https://fleet-api.prd.eu.vn.cloud.tesla.com"
@@ -27,7 +27,7 @@ class Settings:
     TESLA_PROXY_URL: str = os.getenv("TESLA_PROXY_URL", "https://localhost:4443")
 
     # Home Assistant
-    HA_URL: str = os.getenv("HA_URL", "https://your-homeassistant-host")
+    HA_URL: str = os.getenv("HA_URL", "")
     HA_TOKEN: str = os.getenv("HA_TOKEN", "")
 
     # App

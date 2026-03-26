@@ -2,13 +2,31 @@
 set -euo pipefail
 
 # Tesla Solar Charger - Deploy Script
-# Deploys to your-server via SSH
+# Configure deployment target in .deploy.env (gitignored):
+#   REMOTE_USER=youruser
+#   REMOTE_HOST=192.168.1.100
+#   REMOTE_DIR=/home/youruser/tesla-solar-charger
 
-REMOTE_USER="vitaliy"
-REMOTE_HOST="your-server"
-REMOTE_DIR="/home/vitaliy/projects/tesla-solar-charger"
 LOCAL_DIR="$(cd "$(dirname "$0")" && pwd)"
 
+# Load local deploy config (not committed to git)
+if [ -f "$LOCAL_DIR/.deploy.env" ]; then
+    # shellcheck source=/dev/null
+    source "$LOCAL_DIR/.deploy.env"
+fi
+
+REMOTE_USER="${REMOTE_USER:-}"
+REMOTE_HOST="${REMOTE_HOST:-}"
+REMOTE_DIR="${REMOTE_DIR:-/home/${REMOTE_USER}/tesla-solar-charger}"
+
+if [ -z "$REMOTE_HOST" ] || [ -z "$REMOTE_USER" ]; then
+    echo "ERROR: REMOTE_HOST and REMOTE_USER must be set in .deploy.env"
+    echo "Create .deploy.env with:"
+    echo "  REMOTE_USER=youruser"
+    echo "  REMOTE_HOST=your-server-ip-or-hostname"
+    echo "  REMOTE_DIR=/home/youruser/tesla-solar-charger"
+    exit 1
+fi
 echo "=== Tesla Solar Charger Deploy ==="
 echo "Local:  $LOCAL_DIR"
 echo "Remote: $REMOTE_USER@$REMOTE_HOST:$REMOTE_DIR"

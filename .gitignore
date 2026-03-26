@@ -9,6 +9,7 @@ venv/
 
 # Environment
 .env
+.deploy.env
 
 # Secrets — never commit private keys or TLS certs
 tesla_fleet.key
