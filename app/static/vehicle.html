@@ -22,10 +22,15 @@
     </nav>
 
     <main>
+        <!-- Data source banner (shown in BLE mode) -->
+        <div id="ble-mode-banner" style="display:none; background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:0.6rem 1rem; margin-bottom:0.75rem; font-size:0.85rem; color:var(--text-muted)">
+            <strong style="color:#22c55e">ESPHome BLE</strong> — data via BLE bridge. Location and vehicle config not available in this mode.
+        </div>
+
         <div id="vehicle-offline" style="display:none">
             <div class="section">
                 <h2>Vehicle</h2>
-                <p style="color: var(--text-muted); text-align: center; padding: 2rem 0;">
+                <p id="vehicle-offline-msg" style="color: var(--text-muted); text-align: center; padding: 2rem 0;">
                     Vehicle not connected. Go to <a href="/settings.html">Settings</a> to connect your Tesla.
                 </p>
             </div>
@@ -88,6 +93,10 @@
                         <span class="info-value" id="v-range">--</span>
                     </div>
                     <div class="info-item">
+                        <span class="info-label">Energy Added</span>
+                        <span class="info-value" id="v-energy-added">--</span>
+                    </div>
+                    <div class="info-item">
                         <span class="info-label">Charge Port</span>
                         <span class="info-value" id="v-charge-port">--</span>
                     </div>
@@ -111,7 +120,7 @@
             </div>
 
             <!-- Climate -->
-            <div class="section">
+            <div class="section" id="section-climate">
                 <h2>Climate</h2>
                 <div class="info-grid">
                     <div class="info-item">
@@ -151,8 +160,8 @@
                     <div class="control-row">
                         <button onclick="cmd('climate_start')" class="btn btn-solar">Start Climate</button>
                         <button onclick="cmd('climate_stop')" class="btn btn-pause">Stop Climate</button>
-                        <button onclick="cmd('defrost',{on:true})" class="btn">Defrost On</button>
-                        <button onclick="cmd('defrost',{on:false})" class="btn">Defrost Off</button>
+                        <button onclick="cmd('defrost',{on:true})" class="btn fleet-only">Defrost On</button>
+                        <button onclick="cmd('defrost',{on:false})" class="btn fleet-only">Defrost Off</button>
                     </div>
                     <div class="control-row" style="margin-top: 0.75rem;">
                         <label style="font-size: 13px; font-weight: 500; color: var(--text-secondary);">Temp:</label>
@@ -161,7 +170,7 @@
                         <span style="font-size: 13px; color: var(--text-muted);">&deg;C</span>
                         <button onclick="setTemp()" class="btn btn-primary">Set</button>
                     </div>
-                    <div class="control-row" style="margin-top: 0.75rem;">
+                    <div class="control-row fleet-only" style="margin-top: 0.75rem;">
                         <label style="font-size: 13px; font-weight: 500; color: var(--text-secondary);">Seat Heater:</label>
                         <select id="seat-select" style="padding: 6px 8px; border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: 13px;">
                             <option value="0">Driver</option>
@@ -177,6 +186,8 @@
                             <option value="3">High</option>
                         </select>
                         <button onclick="setSeatHeater()" class="btn">Set</button>
+                    </div>
+                    <div class="control-row" style="margin-top: 0.75rem;">
                         <button onclick="cmd('steering_wheel_heater',{on:true})" class="btn" title="Steering wheel heater on">SW Heat On</button>
                         <button onclick="cmd('steering_wheel_heater',{on:false})" class="btn" title="Steering wheel heater off">SW Heat Off</button>
                     </div>
@@ -184,7 +195,7 @@
             </div>
 
             <!-- Security & Access -->
-            <div class="section">
+            <div class="section" id="section-security">
                 <h2>Security & Access</h2>
                 <div class="info-grid">
                     <div class="info-item">
@@ -246,7 +257,7 @@
             </div>
 
             <!-- Drive State -->
-            <div class="section">
+            <div class="section" id="section-drive">
                 <h2>Location & Drive</h2>
                 <div class="info-grid">
                     <div class="info-item">
@@ -277,7 +288,7 @@
             </div>
 
             <!-- Tires -->
-            <div class="section">
+            <div class="section" id="section-tires">
                 <h2>Tire Pressure</h2>
                 <div class="info-grid">
                     <div class="info-item">
@@ -300,7 +311,7 @@
             </div>
 
             <!-- Vehicle Config -->
-            <div class="section">
+            <div class="section" id="section-config">
                 <h2>Vehicle Configuration</h2>
                 <div class="info-grid" id="v-config-grid">
                 </div>

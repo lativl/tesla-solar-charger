@@ -26,6 +26,10 @@ class Settings:
     # Tesla HTTP Proxy (for vehicle commands)
     TESLA_PROXY_URL: str = os.getenv("TESLA_PROXY_URL", "https://localhost:4443")
 
+    # Home Assistant
+    HA_URL: str = os.getenv("HA_URL", "https://your-homeassistant-host")
+    HA_TOKEN: str = os.getenv("HA_TOKEN", "")
+
     # App
     SECRET_KEY: str = os.getenv("SECRET_KEY", "change-me")
     APP_PORT: int = int(os.getenv("APP_PORT", "5050"))

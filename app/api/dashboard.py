@@ -7,9 +7,10 @@ from app.charger.algorithm import ChargingMode
 from app.charger.worker import get_mode
 from app.database import get_db
 from app.event_log import get_events, clear as clear_events
+from app.ha.client import ha_client
 from app.models import ChargingSession, Metric
 from app.mqtt.client import mqtt_client
-from app.tesla.api import tesla_api
+from app.tesla.manager import transport_manager
 
 router = APIRouter(prefix="/api")
 
@@ -17,8 +18,9 @@ router = APIRouter(prefix="/api")
 @router.get("/status")
 async def get_status():
     solar = mqtt_client.get_solar_status()
-    ev = tesla_api.last_state
+    ev = transport_manager.active.last_state
     mode = get_mode()
+    solar_lux = await ha_client.get_solar_lux() if ha_client.configured else None
 
     return {
         "solar": solar,
@@ -37,6 +39,10 @@ async def get_status():
         },
         "charger": {
             "mode": mode.value,
+        },
+        "ha": {
+            "solar_lux": solar_lux,
+            "configured": ha_client.configured,
         },
     }
 
@@ -63,6 +69,7 @@ def get_history(
             "load_power": m.load_power,
             "ev_charging_amps": m.ev_charging_amps,
             "ev_soc": m.ev_soc,
+            "solar_lux": m.solar_lux,
         }
         for m in metrics
     ]

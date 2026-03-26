@@ -80,7 +80,7 @@
                 </div>
                 <div class="help-card">
                     <h4>Vehicle Commands</h4>
-                    <p>Commands (set amps, start/stop charging) are signed by the <code>tesla-http-proxy</code> using your Fleet API private key and sent via the Vehicle Command Protocol. The car is polled every 60 seconds for SoC and state.</p>
+                    <p>Commands (set amps, start/stop charging) are signed by the <code>tesla-http-proxy</code> using your Fleet API private key and sent via the Vehicle Command Protocol. The car is polled every 5 minutes (configurable) for SoC and state. The proxy is recreated before every command to prevent session corruption.</p>
                 </div>
                 <div class="help-card">
                     <h4>Hardware</h4>
@@ -234,7 +234,7 @@
                 <p>Cumulative daily totals: solar yield estimate, grid import, grid export, battery charge-in, and battery discharge-out (kWh). Updated every 30 seconds.</p>
 
                 <h4>Power History Chart (24h)</h4>
-                <p>Line chart showing solar, battery, grid, and load power on the left axis (Watts) plus EV charging amps on the right axis. Data is recorded every 30 seconds from the app's metrics table. Hover over the chart to see exact values at any point in time.</p>
+                <p>Line chart showing solar, battery, grid, load power, and EV charge power (Watts) on the primary axis. Data is recorded every 30 seconds from the app's metrics table. Hover over the chart to see exact values at any point in time.</p>
             </div>
         </div>
 
@@ -285,7 +285,7 @@
                 </ul>
                 <p class="help-note">All commands sent from this page are logged in the <a href="/logger.html">Logger</a> under the "manual" category, showing both the intent and success/failure result.</p>
 
-                <p>Data refreshes automatically every 30 seconds. If the vehicle is asleep, data requests will return a timeout (408) and the page shows the last known state.</p>
+                <p>Data refreshes automatically every 60 seconds. If the vehicle is asleep, the page shows a "sleeping" message and preserves the last known plug-in state. If the vehicle is offline, a corresponding message is shown.</p>
             </div>
         </div>
 
@@ -332,9 +332,14 @@
                 <h4>Step 1: Calculate Surplus</h4>
                 <div class="help-formula">
                     <code>house_load = total_load - current_ev_draw</code><br>
-                    <code>solar_surplus = pv_power - house_load - battery_protection_buffer</code>
+                    <code>battery_available = max(0, battery_power)</code><br>
+                    <code>solar_surplus = pv_power + battery_available - house_load - battery_protection_buffer</code>
                 </div>
                 <p>The current EV draw is subtracted from load to avoid counting it twice. The buffer (default 200W) prevents the battery from being drained.</p>
+                <p><strong>Battery charging power is included as available surplus.</strong> If the battery is currently being charged at 2000W, that power could be redirected to the EV instead. This is critical for accurate surplus calculation &mdash; without it, the algorithm underestimates available solar when batteries are absorbing excess production.</p>
+
+                <h4>Step 1b: High SoC Discharge Allowance</h4>
+                <p>When the home battery SoC is above the <em>High SoC Threshold</em> (default 95%), a configurable <em>Discharge Allowance</em> (default 150W) is added to the surplus. This means a small battery discharge (up to 150W) is tolerated to keep EV charging stable, avoiding unnecessary ramp-downs from minor fluctuations when the battery is nearly full.</p>
 
                 <h4>Step 2: Apply Penalties (with time-based filters)</h4>
                 <p>Both battery and grid penalties use configurable time delays to avoid reacting to brief transient spikes:</p>
@@ -350,15 +355,27 @@
                 </div>
                 <p>For a single-phase 230V charger: 2300W surplus = 10A. For 3-phase: 2300W = ~3.3A.</p>
 
-                <h4>Step 4: Apply Constraints</h4>
+                <h4>Step 4: Apply Constraints &amp; Stabilization</h4>
                 <ul>
                     <li>Clamped between <strong>min_charge_amps</strong> (default 6A) and <strong>max_charge_amps</strong> (default 16A)</li>
                     <li>If target is below minimum &rarr; stop charging (most EVs can't charge below ~6A)</li>
                     <li>Ramp up is gradual: max +2A per cycle (prevents oscillation)</li>
                     <li>Ramp down is faster: max -4A per cycle (safety priority)</li>
                 </ul>
+                <p><strong>Stabilization delays:</strong> After any amps change (increase or decrease), the algorithm holds that level for a configurable period before allowing another change. This prevents constant oscillation from minor solar fluctuations. Defaults: <em>Ramp Up Delay</em> = 120s, <em>Ramp Down Delay</em> = 60s. Emergency stops and stop-below-minimum bypass stabilization.</p>
 
-                <h4>Step 5: Safety Checks</h4>
+                <h4>Step 5: Speculative Start</h4>
+                <p>When the calculated surplus is below the minimum charging threshold but conditions suggest more solar is available, the algorithm performs a <strong>speculative start</strong> at minimum amps. This solves the "chicken and egg" problem where the inverter curtails PV production (MPPT throttling) when there isn't enough load to consume it.</p>
+                <p>Speculative start triggers when ALL of these conditions are met:</p>
+                <ul>
+                    <li>EV is plugged in but not currently charging</li>
+                    <li>Home battery SoC &ge; <em>Speculative Start SoC</em> (default 80%)</li>
+                    <li>PV production &ge; <em>Speculative Min PV</em> (default 500W)</li>
+                    <li>Grid import is within the allowed limit</li>
+                </ul>
+                <p>If the inverter ramps up PV to meet the new load, the next cycle will see higher surplus and continue charging. If not (e.g., it's cloudy), the algorithm will see grid import or battery drain and stop on the next cycle.</p>
+
+                <h4>Step 6: Safety Checks</h4>
                 <table class="help-table">
                     <thead>
                         <tr><th>Check</th><th>Condition</th><th>Action</th></tr>
@@ -385,11 +402,22 @@
                 <h4>Hysteresis</h4>
                 <p>When battery SoC drops below the minimum, a <strong>lockout</strong> is activated. Charging will not resume until SoC rises above <code>min_battery_soc + battery_soc_hysteresis</code> (default: 25% + 5% = 30%). This prevents rapid start/stop cycling.</p>
 
-                <h4>Auto-Wake &amp; Proxy Session Management</h4>
-                <p>Before sending any command, the app checks the vehicle state via the Fleet API (lightweight, no signing). If the car is asleep, it wakes the vehicle and waits up to 30 seconds for it to come online. Additionally, if the car has been through a sleep cycle since the last proxy restart, the app proactively deletes the proxy's session cache and restarts the proxy container to force fresh session negotiation. This prevents stale signed commands from reaching the car, which could trigger key revocation.</p>
+                <h4>Wake-to-Charge</h4>
+                <p>If the car is asleep and there's enough solar surplus for charging, the app will wake the car to check its plug-in status. Two strategies are used:</p>
+                <ul>
+                    <li><strong>Option B (primary):</strong> If the car was plugged in before going to sleep and there's solar surplus, wake immediately to start charging.</li>
+                    <li><strong>Option A (fallback):</strong> If the plug state is unknown (e.g., after app restart) or the car wasn't plugged in last we knew, perform a periodic wake check every 15 minutes when solar surplus is available.</li>
+                </ul>
+                <p>The car's <code>is_plugged_in</code> state is preserved across sleep cycles so the algorithm knows whether waking is worthwhile.</p>
+
+                <h4>Proxy Session Management</h4>
+                <p>The <code>tesla-http-proxy</code> has a known IV counter bug where the session counter gets corrupted after 2-3 commands on the same session, causing <code>IV_SMALLER_THAN_EXPECTED</code> errors that make the car permanently revoke the key.</p>
+                <p><strong>Prevention:</strong> The proxy container is fully recreated (stop &rarr; remove &rarr; create &rarr; start) before <em>every</em> command, ensuring each command gets a brand new session with IV starting at 0. An <code>asyncio.Lock</code> prevents concurrent recreations, and a readiness check polls the proxy's TLS port before sending the command.</p>
+                <p>The START action is split across two ticks: tick 1 sets the amps, tick 2 sends <code>charge_start</code> &mdash; ensuring only one proxy command per tick.</p>
+                <p>A minimum interval of 30 seconds is enforced between proxy commands to give the car time to process session teardown/setup cleanly.</p>
 
                 <h4>API Rate Limiting</h4>
-                <p>Commands are only sent to Tesla when the target amps actually changes. The vehicle is polled at most every 60 seconds. This keeps API usage well within Tesla's limits (~200 requests/day).</p>
+                <p>Commands are only sent to Tesla when the target amps actually changes. The vehicle is polled at the <em>Tesla Poll Interval</em> (default 300s / 5 minutes). With stabilization delays preventing frequent amps changes, typical daily API usage is ~300 calls, well within Tesla's Fleet API limits. The poll interval is configurable from the Settings page.</p>
             </div>
         </div>
 
@@ -481,13 +509,93 @@
                         <td>60 s</td>
                         <td>Grid import must stay below the limit for this many seconds before the penalty clears. Prevents oscillation when grid import is near the threshold.</td>
                     </tr>
+                    <tr>
+                        <td><strong>Ramp Up Delay</strong></td>
+                        <td>120 s</td>
+                        <td>After increasing amps, hold at the new level for this many seconds before allowing another change. Prevents rapid oscillation from solar fluctuations. Set lower for faster response, higher for stability.</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Ramp Down Delay</strong></td>
+                        <td>60 s</td>
+                        <td>After decreasing amps, hold at the new level for this many seconds before allowing another change. Shorter than ramp-up delay since ramp-downs are safety-oriented.</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Tesla Poll Interval</strong></td>
+                        <td>300 s</td>
+                        <td>How often to poll the Tesla Fleet API for vehicle data (SoC, charge state). Lower values give faster response but consume more of your daily API quota (~200-600 requests/day). At 300s: ~288 polls/day.</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Speculative Start SoC</strong></td>
+                        <td>80%</td>
+                        <td>When home battery SoC is above this and there's PV production, attempt a speculative start even if calculated surplus is below minimum. Solves MPPT curtailment where the inverter throttles solar when there's no load to consume it.</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Speculative Min PV</strong></td>
+                        <td>500 W</td>
+                        <td>Minimum PV production (watts) required for speculative start. Prevents speculative starts in low-light conditions where the inverter definitely can't produce enough.</td>
+                    </tr>
+                    <tr>
+                        <td><strong>High SoC Threshold</strong></td>
+                        <td>95%</td>
+                        <td>When home battery SoC is above this, a small battery discharge is tolerated to keep EV charging stable.</td>
+                    </tr>
+                    <tr>
+                        <td><strong>High SoC Discharge Allow</strong></td>
+                        <td>150 W</td>
+                        <td>Amount of battery discharge (watts) tolerated when SoC is above the High SoC Threshold. Prevents unnecessary amps reduction from minor fluctuations when batteries are nearly full.</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Lux Stop Threshold</strong></td>
+                        <td>200</td>
+                        <td>Below this lux level (from Ecowitt sensor via Home Assistant), the algorithm stops trying solar charging entirely &mdash; it's too dark or overcast to produce meaningful power. Requires HA integration configured.</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Lux Conservative Threshold</strong></td>
+                        <td>5,000</td>
+                        <td>Below this lux level, speculative starts are disabled (cloudy conditions where the inverter is unlikely to ramp up PV). Regular surplus-based charging still works normally.</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Lux Aggressive Threshold</strong></td>
+                        <td>20,000</td>
+                        <td>Above this lux level (bright sunshine), the speculative start SoC requirement is lowered by 10% (e.g., from 80% to 70%), allowing more aggressive solar charging because high lux strongly predicts sustained PV production.</td>
+                    </tr>
                 </tbody>
             </table>
         </div>
 
+        <!-- 9. Home Assistant Integration -->
+        <div class="section" id="ha-integration">
+            <h2>9. Home Assistant Integration</h2>
+            <div class="help-content">
+                <p>The app can optionally read sensor data from Home Assistant to improve charging decisions. Currently used to read <strong>solar lux</strong> from an Ecowitt weather station sensor.</p>
+
+                <h4>Setup</h4>
+                <ol>
+                    <li>In Home Assistant, go to your Profile &rarr; Long-lived access tokens &rarr; Create Token</li>
+                    <li>Add these to your <code>.env</code> file:
+                        <div class="help-formula">
+                            <code>HA_URL=https://your-homeassistant-host</code><br>
+                            <code>HA_TOKEN=your_long_lived_access_token</code>
+                        </div>
+                    </li>
+                    <li>Restart the app. The dashboard Solar card will show lux readings when available.</li>
+                </ol>
+
+                <h4>How Lux Affects the Algorithm</h4>
+                <p>When solar lux data is available from <code>sensor.ecowitt_solar_lux</code>, it modulates the algorithm's aggressiveness:</p>
+                <ul>
+                    <li><strong>Low light (&lt; Lux Stop Threshold):</strong> Stops trying solar entirely. If currently charging, sends a stop command. No speculative starts. Saves API calls during dark/overcast conditions.</li>
+                    <li><strong>Cloudy (&lt; Lux Conservative Threshold):</strong> Normal surplus-based charging works, but speculative starts are disabled. The inverter is unlikely to ramp up PV in cloudy conditions.</li>
+                    <li><strong>Normal (between thresholds):</strong> Standard behavior, speculative starts allowed at default SoC threshold.</li>
+                    <li><strong>Bright sun (&ge; Lux Aggressive Threshold):</strong> Speculative start SoC requirement lowered by 10%, allowing earlier/more frequent speculative starts because sustained PV production is likely.</li>
+                </ul>
+                <p class="help-note">If HA is not configured or the sensor is unavailable, the algorithm falls back to its default behavior without lux data. All lux thresholds are configurable on the Settings page.</p>
+            </div>
+        </div>
+
         <!-- 9. Scheduling -->
         <div class="section" id="schedules">
-            <h2>9. Scheduling</h2>
+            <h2>10. Scheduling</h2>
             <div class="help-content">
                 <p>Schedules allow you to ensure the car reaches a target SoC by a specific time, even if grid power is needed.</p>
 
@@ -540,7 +648,7 @@
 
         <!-- 10. Logger -->
         <div class="section" id="logger">
-            <h2>10. Logger</h2>
+            <h2>11. Logger</h2>
             <div class="help-content">
                 <p>The <a href="/logger.html">Logger</a> tab shows a real-time event log of all workflow events happening in the system. Events are stored in an in-memory ring buffer (last 500 events) and are cleared on app restart.</p>
 
@@ -590,7 +698,7 @@
 
         <!-- 11. Tesla API Setup -->
         <div class="section" id="tesla-setup">
-            <h2>11. Tesla API Setup</h2>
+            <h2>12. Tesla API Setup</h2>
             <div class="help-content">
                 <p>This app uses the <strong>Tesla Fleet API</strong> (OAuth2) with the <strong>Vehicle Command Protocol</strong> (signed commands via <code>tesla-http-proxy</code>) to control your vehicle.</p>
 
@@ -682,7 +790,7 @@
 
         <!-- 12. MQTT Topics Reference -->
         <div class="section" id="mqtt-topics">
-            <h2>12. MQTT Topics Reference</h2>
+            <h2>13. MQTT Topics Reference</h2>
             <div class="help-content">
                 <p>All topics are under <code>solar_assistant/</code> and end with <code>/state</code>. The app subscribes to all of them but primarily uses these for the charging algorithm:</p>
                 <table class="help-table">
@@ -705,7 +813,7 @@
 
         <!-- 13. Troubleshooting -->
         <div class="section" id="troubleshooting">
-            <h2>13. Troubleshooting</h2>
+            <h2>14. Troubleshooting</h2>
             <table class="help-table">
                 <thead>
                     <tr><th>Problem</th><th>Possible Cause</th><th>Solution</th></tr>
@@ -732,19 +840,24 @@
                         <td>Try the <strong>Wake Up</strong> button on Settings page. Check <a href="/logger.html">Logger</a> for wake-up attempt details. The proxy needs the car to be online to send commands.</td>
                     </tr>
                     <tr>
-                        <td>Tesla removes your key after sleep/wake</td>
-                        <td>Proxy sent a stale-signed command to the car</td>
-                        <td>The app proactively restarts the proxy and clears its session cache whenever the car transitions from asleep to online. If this still occurs, check the Logger for "Proxy session stale" events. Re-add the key via QR code in the Tesla app. As a last resort, recreate the proxy container: <code>docker compose up -d --force-recreate tesla-proxy</code>.</td>
+                        <td>Tesla removes your key</td>
+                        <td>Proxy IV counter corruption</td>
+                        <td>The app recreates the proxy before every command to prevent this. If it still occurs (2 consecutive failures on fresh sessions), the app auto-disables proxy commands and logs "Key appears revoked". Re-add the key via QR code in the Tesla app, then call <code>clear_key_revoked</code> from the Vehicle page or via API. Consider switching to BLE-based control (see <code>tesla_ble.md</code>).</td>
                     </tr>
                     <tr>
-                        <td>Charging doesn't start despite surplus</td>
-                        <td>Surplus below minimum amps threshold</td>
-                        <td>Check if surplus &gt; min_charge_amps &times; voltage (e.g., 6A &times; 230V = 1380W needed). Lower min_charge_amps or wait for more sun.</td>
+                        <td>Charging doesn't start despite sunshine</td>
+                        <td>PV curtailment &mdash; inverter throttles solar when load is low</td>
+                        <td>The algorithm uses speculative start to probe for available solar. Ensure <em>Speculative Start SoC</em> is set appropriately (default 80%). If battery SoC is below this threshold, the algorithm waits for calculated surplus to reach minimum amps &times; voltage (e.g., 6A &times; 230V = 1380W).</td>
+                    </tr>
+                    <tr>
+                        <td>Charging amps change too frequently</td>
+                        <td>Stabilization delays too short</td>
+                        <td>Increase <em>Ramp Up Delay</em> (default 120s) and <em>Ramp Down Delay</em> (default 60s). Each proxy command requires a full container recreation, so frequent changes also increase overhead. Also check <em>Battery Penalty Delay</em> and <em>Grid Penalty Delay</em>.</td>
                     </tr>
                     <tr>
                         <td>Charging starts and stops repeatedly</td>
                         <td>Surplus is right at the threshold</td>
-                        <td>Increase battery_protection_buffer to add more headroom. Consider increasing battery_soc_hysteresis.</td>
+                        <td>Increase battery_protection_buffer to add more headroom. Increase stabilization delays. If battery SoC is high, increase <em>High SoC Discharge Allow</em> to tolerate minor discharge.</td>
                     </tr>
                     <tr>
                         <td>Battery draining while EV charges</td>

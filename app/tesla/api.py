@@ -1,13 +1,14 @@
 import asyncio
 import logging
 import time
-from dataclasses import dataclass
 
 import httpx
 
 from app.config import settings
 from app.event_log import log as elog, INFO, WARN, ERROR, SUCCESS
 from app.tesla.auth import get_valid_token, refresh_access_token
+from app.tesla.models import VehicleState
+from app.tesla.transport import TeslaTransport
 
 logger = logging.getLogger(__name__)
 
@@ -15,32 +16,17 @@ FLEET_API_BASE = settings.TESLA_AUDIENCE
 PROXY_BASE = settings.TESLA_PROXY_URL
 
 
-@dataclass
-class VehicleState:
-    vin: str = ""
-    name: str = ""
-    state: str = "unknown"  # online, asleep, offline
-    battery_level: int = 0
-    charge_state: str = "unknown"  # Charging, Stopped, Disconnected, Complete
-    charging_amps: int = 0
-    charge_amps_request: int = 0
-    charge_limit_soc: int = 80
-    charger_voltage: int = 0
-    charger_power: float = 0.0
-    time_to_full: float = 0.0
-    is_plugged_in: bool = False
-
-
-class TeslaAPI:
+class TeslaAPI(TeslaTransport):
     def __init__(self):
         self._vehicle_id: str | None = None
         self._vin: str | None = None
         self._last_state: VehicleState = VehicleState()
         self._last_known_online: bool = False
-        self._last_command_success: float = 0  # monotonic time of last successful proxy command
-        self._last_proxy_recreate: float = 0   # monotonic time of last proxy recreation
+        self._last_proxy_command: float = 0    # monotonic time of last proxy command (success or fail)
         self._consecutive_proxy_failures: int = 0
         self._key_revoked: bool = False  # set True after repeated fresh-proxy failures
+        self._command_lock = asyncio.Lock()  # prevent concurrent proxy recreations
+        MIN_COMMAND_INTERVAL = 30  # minimum seconds between proxy commands
 
     async def _get_token(self) -> str | None:
         token = get_valid_token()
@@ -147,12 +133,15 @@ class TeslaAPI:
                 self._vin = self._last_state.vin
             return self._last_state
         except httpx.HTTPStatusError as e:
-            # 408 = vehicle asleep/unavailable — mark state and proxy as dirty
+            # 408 = vehicle asleep/unavailable — mark state but preserve plugged-in info
             if e.response.status_code in (408, 503):
                 logger.info(f"Vehicle data request returned {e.response.status_code} — vehicle likely asleep")
                 self._last_state.state = "asleep"
+                self._last_state.charging_amps = 0
+                self._last_state.charger_power = 0.0
+                # Keep is_plugged_in and charge_state from last known data
+                # so the algorithm knows whether to wake the car for charging
                 self._last_known_online = False
-                self._proxy_session_dirty = True
             else:
                 logger.error(f"Failed to get vehicle data: {e}")
             return self._last_state
@@ -233,14 +222,14 @@ class TeslaAPI:
         return await self._send_command("set_preconditioning_max", json={"on": on})
 
     async def _recreate_proxy(self) -> bool:
-        """Recreate tesla-http-proxy container to guarantee a clean session cache.
+        """Recreate tesla-http-proxy container via Docker API to guarantee a clean session.
 
-        CRITICAL: docker restart does NOT clear tmpfs, and the archive API
-        overwrite is unreliable. The ONLY proven way to clear the proxy's
-        stale session cache (.tesla-cache.json on tmpfs) is full container
-        recreation: stop → remove → create → start. This guarantees fresh
-        tmpfs, preventing SIGNEDMESSAGE_INFORMATION_FAULT_IV errors that
-        cause the car to revoke our key.
+        CRITICAL: docker restart does NOT clear tmpfs. Full container recreation
+        (stop → remove → create → start) clears the proxy's session cache
+        (.tesla-cache.json on tmpfs), preventing IV counter corruption.
+
+        Copies all config AND labels from the old container so Docker Compose
+        still recognizes it on subsequent deploys (no name conflicts).
         """
         CONTAINER = "tesla-http-proxy"
         try:
@@ -263,7 +252,7 @@ class TeslaAPI:
                     f"/v1.45/containers/{CONTAINER}/stop",
                     params={"t": "3"}, timeout=30,
                 )
-                if resp.status_code not in (200, 204, 304):  # 304 = already stopped
+                if resp.status_code not in (200, 204, 304):
                     logger.warning(f"Stop proxy returned HTTP {resp.status_code}")
 
                 # Step 3: Remove the container (this clears tmpfs!)
@@ -276,12 +265,14 @@ class TeslaAPI:
                     return False
                 logger.info("Removed proxy container (tmpfs cleared)")
 
-                # Step 4: Create a new container with the same config
+                # Step 4: Create a new container with the same config + labels + user
                 create_body = {
                     "Image": config["Image"],
                     "Env": config.get("Env", []),
                     "Cmd": config.get("Cmd"),
                     "Entrypoint": config.get("Entrypoint"),
+                    "User": config.get("User", ""),  # preserve container user (e.g. 65532)
+                    "Labels": config.get("Labels", {}),  # preserve Compose labels
                     "HostConfig": {
                         "NetworkMode": host_config.get("NetworkMode", "host"),
                         "Binds": host_config.get("Binds", []),
@@ -312,7 +303,18 @@ class TeslaAPI:
 
                 logger.info("Proxy container recreated with fresh tmpfs")
                 elog("Proxy recreated — fresh session cache", INFO, "tesla")
-                await asyncio.sleep(3)  # Wait for proxy to be ready
+
+                # Wait for proxy to accept TLS connections (poll up to 15s)
+                for attempt in range(15):
+                    await asyncio.sleep(1)
+                    try:
+                        async with httpx.AsyncClient(verify=False) as test_client:
+                            await test_client.get("https://localhost:4443/", timeout=2)
+                        logger.info(f"Proxy ready after {attempt + 1}s")
+                        return True
+                    except Exception:
+                        pass  # not ready yet
+                logger.warning("Proxy not ready after 15s — proceeding anyway")
                 return True
 
         except Exception as e:
@@ -324,7 +326,7 @@ class TeslaAPI:
         """Restart proxy by fully recreating the container (clears tmpfs)."""
         return await self._recreate_proxy()
 
-    async def _wake_and_wait(self, max_wait: int = 30) -> bool:
+    async def wake_and_wait(self, max_wait: int = 30) -> bool:
         """Wake the vehicle and wait until it's online and ready for commands."""
         logger.info("Waking vehicle...")
         elog("Waking vehicle...", INFO, "tesla")
@@ -347,15 +349,26 @@ class TeslaAPI:
 
         This does NOT require the car to be awake — it queries Tesla's cloud
         for the last known state. Returns 'online', 'asleep', 'offline', or 'unknown'.
+        Also logs sleep/wake transitions.
         """
         try:
             vehicles = await self.get_vehicles()
             if vehicles:
                 state = vehicles[0].get("state", "unknown")
-                if state == "online":
+                # Log transitions
+                if state == "online" and not self._last_known_online:
+                    logger.info("Vehicle is now online")
+                    elog("Vehicle is now online", SUCCESS, "tesla")
+                    self._last_known_online = True
+                elif state != "online" and self._last_known_online:
+                    logger.info(f"Vehicle went to sleep ({state})")
+                    elog(f"Vehicle went to sleep ({state})", INFO, "tesla")
+                    self._last_known_online = False
+                elif state == "online":
                     self._last_known_online = True
                 else:
                     self._last_known_online = False
+                self._last_state.state = state
                 return state
         except Exception as e:
             logger.warning(f"Failed to check vehicle state: {e}")
@@ -371,72 +384,47 @@ class TeslaAPI:
         if state != "online":
             logger.info(f"Vehicle state is '{state}' — waking before sending any proxy command")
             elog(f"Vehicle is {state} — waking first (pre-command safety)", INFO, "tesla")
-            if not await self._wake_and_wait():
+            if not await self.wake_and_wait():
                 return False
         return True
 
     async def _send_command(self, command: str, **kwargs) -> bool:
-        """Send a command via proxy, ensuring vehicle is online first.
+        """Send a command via proxy with fresh session every time.
 
-        Strategy: send command directly (proxy keeps its own session cache).
-        Only recreate proxy on 500 error, with cooldown to avoid the IV-reset
-        problem that causes key revocation. Never recreate preemptively.
+        CRITICAL: The tesla-http-proxy has an IV counter bug where the counter
+        gets corrupted after 2-3 commands on the same session, causing
+        IV_SMALLER_THAN_EXPECTED which makes the car revoke our key permanently.
+
+        Prevention: recreate the proxy before EVERY command so each command gets
+        a brand new session (IV starts at 0). One command per proxy lifetime.
+        Uses asyncio.Lock to prevent concurrent proxy recreations (409 Conflict).
         """
-        if not await self._ensure_vehicle_info():
-            return False
-
-        if not await self._ensure_online():
-            logger.error(f"Cannot send {command} — vehicle not online or key revoked")
-            elog(f"Cannot send {command} — vehicle not online or key revoked", ERROR, "tesla")
-            return False
-
-        # Try sending the command
-        try:
-            await self._request(
-                "POST",
-                f"/api/1/vehicles/{self._vin}/command/{command}",
-                use_proxy=True,
-                **kwargs,
-            )
-            self._last_command_success = time.monotonic()
-            self._consecutive_proxy_failures = 0
-            return True
-        except httpx.HTTPStatusError as e:
-            if e.response.status_code != 500:
-                logger.error(f"Command {command} failed: {e}")
-                elog(f"Command {command} failed: {e}", ERROR, "tesla")
+        async with self._command_lock:
+            if not await self._ensure_vehicle_info():
                 return False
 
-            # 500 from proxy — possible stale session. Apply cooldown before recreating.
-            self._consecutive_proxy_failures += 1
+            if not await self._ensure_online():
+                logger.error(f"Cannot send {command} — vehicle not online or key revoked")
+                elog(f"Cannot send {command} — vehicle not online or key revoked", ERROR, "tesla")
+                return False
+
+            # Enforce minimum interval between proxy commands
             now = time.monotonic()
-            since_last_recreate = now - self._last_proxy_recreate
-            since_last_success = now - self._last_command_success
+            since_last = now - self._last_proxy_command
+            if self._last_proxy_command > 0 and since_last < 30:
+                wait = 30 - since_last
+                logger.info(f"Waiting {wait:.0f}s before next proxy command (minimum interval)")
+                await asyncio.sleep(wait)
 
-            # If last command succeeded recently, DON'T recreate — the session is still valid.
-            # The 500 might be a transient issue. Just fail and let next tick retry naturally.
-            if since_last_success < 120:
-                logger.warning(f"Command {command} got 500 but last success was {since_last_success:.0f}s ago — NOT recreating proxy (session likely valid)")
-                elog(f"Command {command} failed (transient) — will retry", WARN, "tesla")
-                return False
-
-            # If we already recreated recently, don't do it again (cooldown)
-            if since_last_recreate < 300:
-                logger.warning(f"Command {command} got 500, proxy was recreated {since_last_recreate:.0f}s ago — waiting for cooldown")
-                # If we've failed multiple times with fresh proxy, key is probably revoked
-                if self._consecutive_proxy_failures >= 3:
-                    self._key_revoked = True
-                    logger.error(f"Key appears revoked — {self._consecutive_proxy_failures} consecutive failures after proxy recreate")
-                    elog("Key appears revoked — stopping all proxy commands. Re-add key via Tesla app.", ERROR, "tesla")
-                return False
-
-            # Recreate proxy and retry once
-            logger.info(f"Command {command} got 500, last success was {since_last_success:.0f}s ago — recreating proxy")
-            elog(f"Proxy session error on {command} — recreating proxy", WARN, "tesla")
+            # Recreate proxy for a fresh session (prevents IV counter corruption)
+            logger.info(f"Recreating proxy for fresh session before {command}")
             if not await self._restart_proxy():
+                logger.error(f"Cannot send {command} — proxy recreate failed")
+                elog(f"Proxy recreate failed before {command}", ERROR, "tesla")
                 return False
-            self._last_proxy_recreate = time.monotonic()
 
+            # Send the command on the fresh proxy
+            self._last_proxy_command = time.monotonic()
             try:
                 await self._request(
                     "POST",
@@ -444,22 +432,21 @@ class TeslaAPI:
                     use_proxy=True,
                     **kwargs,
                 )
-                self._last_command_success = time.monotonic()
                 self._consecutive_proxy_failures = 0
-                elog(f"Command {command} succeeded after proxy recreate", SUCCESS, "tesla")
                 return True
-            except Exception as e2:
+            except httpx.HTTPStatusError as e:
                 self._consecutive_proxy_failures += 1
-                logger.error(f"Command {command} failed after proxy recreate: {e2}")
-                elog(f"Command {command} failed after proxy recreate", ERROR, "tesla")
-                if self._consecutive_proxy_failures >= 3:
+                logger.error(f"Command {command} failed on fresh proxy: {e}")
+                elog(f"Command {command} failed: {e}", ERROR, "tesla")
+                if e.response.status_code == 500 and self._consecutive_proxy_failures >= 2:
                     self._key_revoked = True
-                    logger.error("Key appears revoked — stopping all proxy commands")
+                    logger.error("Key appears revoked — 2 consecutive failures on fresh proxy sessions")
                     elog("Key appears revoked — stopping all proxy commands. Re-add key via Tesla app.", ERROR, "tesla")
                 return False
-        except Exception as e:
-            logger.error(f"Command {command} failed: {e}")
-            return False
+            except Exception as e:
+                self._consecutive_proxy_failures += 1
+                logger.error(f"Command {command} failed: {e}")
+                return False
 
     async def start_charging(self) -> bool:
         ok = await self._send_command("charge_start")

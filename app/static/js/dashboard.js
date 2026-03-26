@@ -81,6 +81,12 @@ function updateDashboard(data) {
     document.getElementById('ev-amps').textContent = `${ev.charging_amps} A`;
     document.getElementById('ev-state').textContent = ev.charge_state;
 
+    // Solar Lux (from Home Assistant)
+    if (data.ha && data.ha.solar_lux != null) {
+        document.getElementById('lux-row').style.display = '';
+        document.getElementById('solar-lux').textContent = Math.round(data.ha.solar_lux).toLocaleString();
+    }
+
     // Sync amps slider with Tesla's current setting (only if user isn't dragging)
     const slider = document.getElementById('amps-slider');
     const requestedAmps = ev.charge_amps_request || ev.charging_amps || 0;
@@ -186,12 +192,28 @@ async function loadChart() {
             pointRadius: 0,
             pointHitRadius: 8,
         },
+        {
+            label: 'Solar Lux',
+            data: points.map(d => d.solar_lux),
+            borderColor: '#eab308',
+            borderDash: [4, 4],
+            fill: false,
+            tension: 0.3,
+            borderWidth: 1.5,
+            pointRadius: 0,
+            pointHitRadius: 8,
+            yAxisID: 'yLux',
+        },
     ];
+
+    // Check if any lux data exists
+    const hasLux = points.some(d => d.solar_lux != null);
 
     if (powerChart) {
         powerChart.data.labels = labels;
         powerChart.data.datasets.forEach((ds, i) => { ds.data = datasets[i].data; });
         powerChart.options.scales.x.ticks.maxTicksLimit = hours > 24 ? 12 : 20;
+        powerChart.options.scales.yLux.display = hasLux;
         powerChart.update('none');
         return;
     }
@@ -216,6 +238,10 @@ async function loadChart() {
                     padding: 10,
                     callbacks: {
                         label: function(ctx) {
+                            if (ctx.dataset.yAxisID === 'yLux') {
+                                const v = ctx.parsed.y;
+                                return v != null ? `Solar Lux: ${Math.round(v).toLocaleString()}` : null;
+                            }
                             return `${ctx.dataset.label.split(' (')[0]}: ${ctx.parsed.y} W`;
                         }
                     }
@@ -227,9 +253,17 @@ async function loadChart() {
                     grid: { color: 'rgba(226,232,240,0.5)' },
                 },
                 y: {
+                    position: 'left',
                     ticks: { color: '#475569' },
                     grid: { color: 'rgba(226,232,240,0.5)' },
                     title: { display: true, text: 'Watts', color: '#475569' },
+                },
+                yLux: {
+                    position: 'right',
+                    display: hasLux,
+                    ticks: { color: '#eab308' },
+                    grid: { drawOnChartArea: false },
+                    title: { display: true, text: 'Lux', color: '#eab308' },
                 },
             },
         },

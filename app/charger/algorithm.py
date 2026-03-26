@@ -38,6 +38,17 @@ class ChargerSettings:
     battery_recovery_delay_s: int = 60    # seconds below threshold before penalty clears
     grid_penalty_delay_s: int = 30        # seconds above threshold before penalty applies
     grid_recovery_delay_s: int = 60       # seconds below threshold before penalty clears
+    ramp_up_delay_s: int = 120           # seconds to hold after increasing before next change
+    ramp_down_delay_s: int = 60          # seconds to hold after decreasing before next change
+    tesla_poll_interval_s: int = 300     # seconds between Tesla API polls
+    speculative_start_soc: int = 80      # battery SoC above which speculative start is allowed
+    speculative_min_pv_w: int = 500      # minimum PV production to attempt speculative start
+    high_soc_threshold: int = 95         # battery SoC above which slight discharge is tolerated
+    high_soc_discharge_allowance_w: int = 150  # allowed battery discharge (W) when SoC above threshold
+    lux_stop_threshold: int = 200        # below this lux, stop trying solar (overcast/dark)
+    lux_conservative_threshold: int = 5000  # below this lux, reduce speculative aggressiveness
+    lux_aggressive_threshold: int = 20000   # above this lux, full confidence in solar
+    lux_model_curtailment_factor: float = 0.7  # fraction of predicted headroom added to surplus
 
 
 @dataclass
@@ -51,6 +62,8 @@ class SystemState:
     ev_soc: int = 0
     ev_plugged_in: bool = False
     ev_charge_state: str = "unknown"
+    solar_lux: float | None = None  # from HA Ecowitt sensor, None = unavailable
+    predicted_max_pv: int | None = None  # from lux model, None = insufficient data
 
 
 @dataclass
@@ -75,6 +88,8 @@ class ChargingAlgorithm:
         self._grid_exceed_ticks: int = 0
         self._grid_recover_ticks: int = 0
         self._grid_penalty_active: bool = False
+        # Stabilization: hold after amps change to avoid oscillation
+        self._stabilize_ticks_remaining: int = 0
 
     def decide(self, state: SystemState, mode: ChargingMode) -> Decision:
         s = self.settings
@@ -111,9 +126,24 @@ class ChargingAlgorithm:
         # Calculate current EV draw in watts
         ev_draw_w = state.ev_charging_amps * s.charger_voltage * s.charger_phases
 
-        # Solar surplus = PV - (house load minus what EV is already using) - buffer
+        # Solar surplus calculation:
+        # house_load = what the house uses excluding EV
+        # battery_available = power currently going INTO batteries (positive = charging)
+        #   that could be redirected to EV if needed
+        # This solves PV curtailment: when inverter throttles PV because batteries are
+        # full and load is low, battery_available captures the "hidden" solar capacity.
         house_load = max(0, state.load_power - ev_draw_w)
-        solar_surplus = state.pv_power - house_load - s.battery_protection_buffer_w
+        battery_available = max(0, state.battery_power)  # only count charging, not discharging
+        solar_surplus = state.pv_power + battery_available - house_load - s.battery_protection_buffer_w
+
+        # When battery is nearly full, tolerate slight discharge to keep EV charging stable
+        if state.battery_soc >= s.high_soc_threshold:
+            solar_surplus += s.high_soc_discharge_allowance_w
+
+        # Lux model: add predicted curtailment headroom (conservative fraction)
+        if state.predicted_max_pv is not None and s.lux_model_curtailment_factor > 0:
+            curtailment_headroom = max(0, state.predicted_max_pv - state.pv_power)
+            solar_surplus += int(curtailment_headroom * s.lux_model_curtailment_factor)
 
         # Battery discharge penalty with time-based filter
         battery_exceeding = state.battery_power < -s.battery_discharge_threshold_w
@@ -163,14 +193,65 @@ class ChargingAlgorithm:
         target_amps = int(available_w / (s.charger_voltage * s.charger_phases))
         target_amps = min(target_amps, s.max_charge_amps)
 
-        # Below minimum — stop
+        # Lux-based solar confidence
+        lux = state.solar_lux
+        lux_info = f", lux {int(lux)}" if lux is not None else ""
+
+        # Below minimum — check for speculative start or stop
         if target_amps < s.min_charge_amps:
+            # Lux-based early exit: if lux is available and very low, don't bother
+            # trying solar — it's overcast or dark, no point waking the car or speculating
+            if lux is not None and lux < s.lux_stop_threshold:
+                if state.ev_charging_amps > 0:
+                    return Decision(ChargingAction.STOP, 0,
+                                    f"Low light ({int(lux)} lux < {s.lux_stop_threshold}) — stopping",
+                                    available_w)
+                return Decision(ChargingAction.HOLD, 0,
+                                f"Low light ({int(lux)} lux) — no solar expected",
+                                available_w)
+
+            # Speculative start: when battery SoC is high and there's PV production,
+            # the inverter may be curtailing solar (MPPT throttling). Try starting at
+            # min amps — if the inverter can ramp up PV, the next cycle will see more
+            # surplus and keep charging. If not, the algorithm will stop next cycle.
+            #
+            # Lux modulates aggressiveness:
+            #  - lux unavailable (None): use default thresholds
+            #  - lux < conservative (5000): skip speculative start (cloudy)
+            #  - lux >= conservative: allow speculative start
+            #  - lux >= aggressive (20000): lower SoC requirement by 10% (bright sun)
+            speculative_allowed = True
+            speculative_soc = s.speculative_start_soc
+            if lux is not None:
+                if lux < s.lux_conservative_threshold:
+                    speculative_allowed = False
+                elif lux >= s.lux_aggressive_threshold:
+                    speculative_soc = max(50, s.speculative_start_soc - 10)
+
+            # Lux model can also trigger speculative start when predicted PV is high
+            pv_condition = state.pv_power >= s.speculative_min_pv_w
+            predicted_info = ""
+            if not pv_condition and state.predicted_max_pv is not None:
+                if state.predicted_max_pv >= s.speculative_min_pv_w * 2:
+                    pv_condition = True
+                    predicted_info = f", predicted PV {state.predicted_max_pv}W"
+
+            if (speculative_allowed
+                    and state.ev_charging_amps == 0
+                    and state.battery_soc >= speculative_soc
+                    and pv_condition
+                    and state.grid_power_ct <= s.max_grid_import_w):
+                return Decision(ChargingAction.START, s.min_charge_amps,
+                                f"Speculative start at {s.min_charge_amps}A "
+                                f"(battery {state.battery_soc}% ≥ {speculative_soc}%, "
+                                f"PV {state.pv_power}W, surplus only {available_w}W{lux_info}{predicted_info})",
+                                available_w)
             if state.ev_charging_amps > 0:
                 return Decision(ChargingAction.STOP, 0,
-                                f"Available {available_w}W ({target_amps}A) below minimum {s.min_charge_amps}A",
+                                f"Available {available_w}W ({target_amps}A) below minimum {s.min_charge_amps}A{lux_info}",
                                 available_w)
             return Decision(ChargingAction.HOLD, 0,
-                            f"Insufficient surplus: {available_w}W ({target_amps}A)",
+                            f"Insufficient surplus: {available_w}W ({target_amps}A){lux_info}",
                             available_w)
 
         current_amps = state.ev_charging_amps
@@ -178,13 +259,23 @@ class ChargingAlgorithm:
         # Not currently charging — start
         if current_amps == 0:
             start_amps = min(target_amps, s.min_charge_amps + s.ramp_up_step)
+            self._stabilize_ticks_remaining = max(1, s.ramp_up_delay_s // TICK_INTERVAL_S)
             return Decision(ChargingAction.START, start_amps,
                             f"Starting at {start_amps}A (surplus {available_w}W)",
+                            available_w)
+
+        # Stabilization: after a recent amps change, hold to avoid oscillation
+        # (emergency stop and stop-below-minimum bypass this)
+        if self._stabilize_ticks_remaining > 0:
+            self._stabilize_ticks_remaining -= 1
+            return Decision(ChargingAction.HOLD, current_amps,
+                            f"Holding at {current_amps}A (stabilizing {self._stabilize_ticks_remaining * TICK_INTERVAL_S}s left, surplus {available_w}W)",
                             available_w)
 
         # Ramp up (gradual)
         if target_amps > current_amps:
             new_amps = min(current_amps + s.ramp_up_step, target_amps)
+            self._stabilize_ticks_remaining = max(1, s.ramp_up_delay_s // TICK_INTERVAL_S)
             return Decision(ChargingAction.INCREASE, new_amps,
                             f"Ramping up {current_amps}A → {new_amps}A (surplus {available_w}W)",
                             available_w)
@@ -196,6 +287,7 @@ class ChargingAlgorithm:
                 return Decision(ChargingAction.STOP, 0,
                                 f"Ramping down to {new_amps}A below minimum — stopping",
                                 available_w)
+            self._stabilize_ticks_remaining = max(1, s.ramp_down_delay_s // TICK_INTERVAL_S)
             return Decision(ChargingAction.DECREASE, new_amps,
                             f"Ramping down {current_amps}A → {new_amps}A (surplus {available_w}W)",
                             available_w)

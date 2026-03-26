@@ -73,6 +73,105 @@
             </div>
         </div>
 
+        <!-- Communication Channel -->
+        <div class="section">
+            <h2>Communication Channel</h2>
+            <div id="channel-info" style="display:flex; gap:1rem; flex-wrap:wrap; margin-bottom:1rem">
+                <div class="info-item">
+                    <span class="info-label">Active Channel</span>
+                    <span class="info-value" id="active-channel-badge">--</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">Fleet API</span>
+                    <span class="info-value" id="fleet-api-badge">--</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">BLE Device</span>
+                    <span class="info-value" id="ble-badge">--</span>
+                </div>
+            </div>
+            <div style="display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap">
+                <select id="channel-select" onchange="switchChannel(this.value)" style="padding:0.4rem 0.75rem; border-radius:6px; border:1px solid var(--border); background:var(--surface); color:var(--text); font-size:0.9rem">
+                    <option value="fleet_api">Fleet API (Tesla Cloud)</option>
+                    <option value="ble">ESPHome BLE (Local)</option>
+                </select>
+                <button onclick="loadChannelStatus()" class="btn" style="font-size:0.85rem">Refresh</button>
+            </div>
+
+            <!-- BLE Configuration (always visible so user can configure) -->
+            <div id="ble-config-section" style="margin-top:1.5rem">
+                <h3>BLE Device Configuration</h3>
+                <form id="ble-settings-form" class="form-grid" style="margin-top:0.75rem">
+                    <div class="form-group">
+                        <label title="IP address of your ESPHome ESP32 Tesla BLE device on your local network">BLE Host IP</label>
+                        <input type="text" name="ble_host" placeholder="192.168.40.125">
+                    </div>
+                    <div class="form-group">
+                        <label title="API key for ESPHome web server authentication. Leave empty if not configured.">BLE API Key</label>
+                        <input type="text" name="ble_api_key" placeholder="Leave empty if none">
+                    </div>
+                </form>
+                <details style="margin-top:0.75rem">
+                    <summary style="cursor:pointer; color:var(--text-muted); font-size:0.85rem; padding:0.25rem 0">Entity Path Overrides (Advanced)</summary>
+                    <form id="ble-entity-form" class="form-grid" style="margin-top:0.75rem">
+                        <div class="form-group">
+                            <label>Battery Level</label>
+                            <input type="text" name="ble_entity_battery_level" placeholder="sensor/battery_level">
+                        </div>
+                        <div class="form-group">
+                            <label>Charging Current</label>
+                            <input type="text" name="ble_entity_charging_current" placeholder="sensor/charging_current">
+                        </div>
+                        <div class="form-group">
+                            <label>Charging State</label>
+                            <input type="text" name="ble_entity_charging_state" placeholder="sensor/charging_state">
+                        </div>
+                        <div class="form-group">
+                            <label>Charge Limit SoC</label>
+                            <input type="text" name="ble_entity_charge_limit_soc" placeholder="sensor/charge_limit_soc">
+                        </div>
+                        <div class="form-group">
+                            <label>Charger Voltage</label>
+                            <input type="text" name="ble_entity_charger_voltage" placeholder="sensor/charger_voltage">
+                        </div>
+                        <div class="form-group">
+                            <label>Charger Power</label>
+                            <input type="text" name="ble_entity_charger_power" placeholder="sensor/charger_power">
+                        </div>
+                        <div class="form-group">
+                            <label>Charging Switch</label>
+                            <input type="text" name="ble_entity_charging_switch" placeholder="switch/charging">
+                        </div>
+                        <div class="form-group">
+                            <label>Charging Amps Number</label>
+                            <input type="text" name="ble_entity_charging_amps" placeholder="number/charging_amps">
+                        </div>
+                        <div class="form-group">
+                            <label>Charge Limit Number</label>
+                            <input type="text" name="ble_entity_charge_limit" placeholder="number/charge_limit">
+                        </div>
+                        <div class="form-group">
+                            <label>Wake Button</label>
+                            <input type="text" name="ble_entity_wake_button" placeholder="button/wake_vehicle">
+                        </div>
+                    </form>
+                </details>
+                <div style="margin-top:0.75rem; display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap">
+                    <button onclick="saveBleSettings()" class="btn btn-primary" style="font-size:0.85rem">Save BLE Config</button>
+                    <button onclick="testBleConnection()" class="btn" style="font-size:0.85rem">Test Connection</button>
+                    <span id="ble-test-result" style="font-size:0.85rem"></span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Settings Strategies -->
+        <div class="section">
+            <h2>Settings Strategies</h2>
+            <p style="color:var(--text-muted); font-size:0.875rem; margin:0 0 1rem">Named presets for charger settings. Activating a strategy applies all its values instantly.</p>
+            <div id="strategies-list"></div>
+            <button onclick="createStrategyFromCurrent()" class="btn btn-primary" style="margin-top:1rem; font-size:0.85rem">Save Current Settings as Strategy</button>
+        </div>
+
         <!-- Charger Settings -->
         <div class="section">
             <h2>Charger Settings</h2>
@@ -146,6 +245,54 @@
                     <div class="form-group">
                         <label>Grid Recovery Delay (s)</label>
                         <input type="number" name="grid_recovery_delay_s" value="60" min="0" max="300" step="10">
+                    </div>
+                    <div class="form-group">
+                        <label>Ramp Up Delay (s)</label>
+                        <input type="number" name="ramp_up_delay_s" value="60" min="10" max="600" step="10">
+                    </div>
+                    <div class="form-group">
+                        <label>Ramp Down Delay (s)</label>
+                        <input type="number" name="ramp_down_delay_s" value="60" min="10" max="600" step="10">
+                    </div>
+                    <div class="form-group">
+                        <label>Tesla Poll Interval (s)</label>
+                        <input type="number" name="tesla_poll_interval_s" value="300" min="10" max="900" step="10">
+                    </div>
+                    <div class="form-group">
+                        <label>Speculative Start SoC (%)</label>
+                        <input type="number" name="speculative_start_soc" value="80" min="50" max="100">
+                    </div>
+                    <div class="form-group">
+                        <label>Speculative Min PV (W)</label>
+                        <input type="number" name="speculative_min_pv_w" value="500" min="100" max="3000" step="100">
+                    </div>
+                    <div class="form-group">
+                        <label>High SoC Threshold (%)</label>
+                        <input type="number" name="high_soc_threshold" value="95" min="50" max="100">
+                    </div>
+                    <div class="form-group">
+                        <label>High SoC Discharge Allow (W)</label>
+                        <input type="number" name="high_soc_discharge_allowance_w" value="150" min="0" max="500" step="50">
+                    </div>
+                    <div class="form-group">
+                        <label>Lux Stop Threshold</label>
+                        <input type="number" name="lux_stop_threshold" value="200" min="0" max="2000" step="50">
+                    </div>
+                    <div class="form-group">
+                        <label>Lux Conservative Threshold</label>
+                        <input type="number" name="lux_conservative_threshold" value="5000" min="1000" max="20000" step="1000">
+                    </div>
+                    <div class="form-group">
+                        <label>Lux Aggressive Threshold</label>
+                        <input type="number" name="lux_aggressive_threshold" value="20000" min="5000" max="100000" step="5000">
+                    </div>
+                    <div class="form-group">
+                        <label>Lux Model Curtailment Factor</label>
+                        <input type="number" name="lux_model_curtailment_factor" value="0.7" min="0" max="1" step="0.1">
+                    </div>
+                    <div class="form-group">
+                        <label>Lux Model Window (days)</label>
+                        <input type="number" name="lux_model_window_days" value="30" min="7" max="90">
                     </div>
                 </div>
                 <button type="submit" class="btn btn-primary" style="margin-top: 1rem;">Save Settings</button>

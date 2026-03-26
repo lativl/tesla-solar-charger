@@ -1,18 +1,54 @@
 let refreshTimer;
 
+// Sections not available via BLE (no GPS/drive data, no vehicle config)
+const BLE_HIDDEN_SECTIONS = ['section-drive', 'section-config'];
+
+function setBleModeUI(isBle) {
+    const banner = document.getElementById('ble-mode-banner');
+    if (banner) banner.style.display = isBle ? '' : 'none';
+    for (const id of BLE_HIDDEN_SECTIONS) {
+        const el = document.getElementById(id);
+        if (el) el.style.display = isBle ? 'none' : '';
+    }
+    // Show sections that BLE now supports
+    for (const id of ['section-climate', 'section-security', 'section-tires']) {
+        const el = document.getElementById(id);
+        if (el) el.style.display = '';
+    }
+    // Hide fleet-only controls in BLE mode
+    for (const el of document.querySelectorAll('.fleet-only')) {
+        el.style.display = isBle ? 'none' : '';
+    }
+}
+
 async function loadVehicleData() {
     try {
         const resp = await fetch('/api/tesla/vehicle_data');
         const json = await resp.json();
+        const isBle = json.channel === 'ble';
 
-        if (!json.connected || !json.data) {
+        if (!json.connected) {
             document.getElementById('vehicle-offline').style.display = '';
+            document.getElementById('vehicle-offline-msg').innerHTML =
+                'Vehicle not connected. Go to <a href="/settings.html">Settings</a> to connect your Tesla.';
+            document.getElementById('vehicle-content').style.display = 'none';
+            return;
+        }
+
+        if (!json.data) {
+            const vs = json.vehicle_state || 'unknown';
+            document.getElementById('vehicle-offline').style.display = '';
+            document.getElementById('vehicle-offline-msg').textContent =
+                vs === 'asleep' ? 'Vehicle is sleeping. Data will appear when it wakes up.'
+                : vs === 'offline' ? 'Vehicle is offline. Data will appear when it comes online.'
+                : 'Vehicle is unavailable. Waiting for data...';
             document.getElementById('vehicle-content').style.display = 'none';
             return;
         }
 
         document.getElementById('vehicle-offline').style.display = 'none';
         document.getElementById('vehicle-content').style.display = '';
+        setBleModeUI(isBle);
 
         const d = json.data;
         const cs = d.charge_state || {};
@@ -40,8 +76,9 @@ async function loadVehicleData() {
         setText('v-charge-state', cs.charging_state || '--');
         setText('v-charge-rate', cs.charge_rate != null ? `${cs.charge_rate} km/h` : '--');
         setText('v-charger-power', cs.charger_power != null ? `${cs.charger_power} kW` : '--');
-        setText('v-time-full', cs.time_to_full_charge ? `${cs.time_to_full_charge} hr` : '--');
+        setText('v-time-full', cs.time_to_full_charge ? formatTimeToFull(cs.time_to_full_charge) : '--');
         setText('v-range', cs.battery_range != null ? `${Math.round(cs.battery_range * 1.60934)} km` : '--');
+        setText('v-energy-added', cs.charge_energy_added != null ? `${cs.charge_energy_added} kWh` : '--');
         setText('v-charge-port', formatChargePort(cs));
 
         // Sync charge limit slider
@@ -128,6 +165,15 @@ function seatLevel(val) {
     return ['Off', 'Low', 'Med', 'High'][val] || `${val}`;
 }
 
+function formatTimeToFull(hours) {
+    if (hours <= 0) return '--';
+    const h = Math.floor(hours);
+    const m = Math.round((hours - h) * 60);
+    if (h === 0) return `${m}m`;
+    if (m === 0) return `${h}h`;
+    return `${h}h ${m}m`;
+}
+
 function formatPressure(psi) {
     if (psi == null) return '--';
     return `${(psi * 0.0689476).toFixed(2)} bar`;
@@ -205,6 +251,6 @@ function showToast(msg, type) {
     toastTimeout = setTimeout(() => toast.classList.remove('cmd-toast-show'), 3000);
 }
 
-// Load on page open, refresh every 30s
+// Load on page open, refresh every 60s
 loadVehicleData();
-refreshTimer = setInterval(loadVehicleData, 30000);
+refreshTimer = setInterval(loadVehicleData, 60000);

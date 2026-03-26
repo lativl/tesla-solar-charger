@@ -10,12 +10,14 @@ from app.charger.algorithm import (
     ChargingMode,
     SystemState,
 )
+from app.charger.lux_model import lux_pv_model
 from app.charger.scheduler import schedule_manager
 from app.database import SessionLocal
 from app.event_log import log as elog, INFO, WARN, ERROR, SUCCESS
+from app.ha.client import ha_client
 from app.models import ChargingSession, Metric, Setting
 from app.mqtt.client import mqtt_client
-from app.tesla.api import tesla_api
+from app.tesla.manager import transport_manager
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +30,11 @@ _algorithm: ChargingAlgorithm | None = None
 _last_tesla_poll: float = 0
 _last_logged_action: str = ""
 _last_ev_charge_state: str = ""
-TESLA_POLL_INTERVAL = 60  # seconds
+_last_wake_check: float = 0
+_ever_polled_successfully: bool = False
+_pending_charge_start: bool = False  # set_amps succeeded, need to send charge_start next tick
+_pending_start_amps: int = 0
+WAKE_CHECK_INTERVAL = 900  # 15 minutes — how often to wake car to check plug status
 
 
 def get_mode() -> ChargingMode:
@@ -61,8 +67,10 @@ def _load_settings() -> ChargerSettings:
         db.close()
 
 
-def _build_system_state() -> SystemState:
-    ev = tesla_api.last_state
+async def _build_system_state() -> SystemState:
+    ev = transport_manager.active.last_state
+    solar_lux = await ha_client.get_solar_lux() if ha_client.configured else None
+    predicted_max_pv = lux_pv_model.predict_max_pv(solar_lux) if solar_lux else None
     return SystemState(
         pv_power=mqtt_client.get_int("inverter_1:pv_power"),
         load_power=mqtt_client.get_int("inverter_1:load_power"),
@@ -73,6 +81,8 @@ def _build_system_state() -> SystemState:
         ev_soc=ev.battery_level,
         ev_plugged_in=ev.is_plugged_in,
         ev_charge_state=ev.charge_state,
+        solar_lux=solar_lux,
+        predicted_max_pv=predicted_max_pv,
     )
 
 
@@ -87,6 +97,7 @@ def _record_metric(state: SystemState, ev_amps: float):
             load_power=state.load_power,
             ev_charging_amps=ev_amps,
             ev_soc=state.ev_soc,
+            solar_lux=state.solar_lux,
         )
         db.add(m)
         db.commit()
@@ -95,9 +106,10 @@ def _record_metric(state: SystemState, ev_amps: float):
 
 
 async def _control_loop_tick():
-    global _last_amps_sent, _current_session, _current_mode, _algorithm, _last_tesla_poll, _last_logged_action, _last_ev_charge_state
+    global _last_amps_sent, _current_session, _current_mode, _algorithm, _last_tesla_poll, _last_logged_action, _last_ev_charge_state, _last_wake_check, _ever_polled_successfully, _pending_charge_start, _pending_start_amps
 
     charger_settings = _load_settings()
+    lux_pv_model.refresh_if_needed()
 
     # Reuse algorithm instance to preserve state (e.g. battery_low_lockout)
     if _algorithm is None:
@@ -107,15 +119,55 @@ async def _control_loop_tick():
 
     # Rate-limited Tesla polling
     now = time.monotonic()
-    if now - _last_tesla_poll >= TESLA_POLL_INTERVAL:
+    tesla = transport_manager.active
+    if now - _last_tesla_poll >= charger_settings.tesla_poll_interval_s:
         try:
-            await tesla_api.get_vehicle_data()
+            await tesla.get_vehicle_data()
             _last_tesla_poll = now
+            ev_after = tesla.last_state
+            if ev_after.state == "online" and ev_after.battery_level > 0:
+                _ever_polled_successfully = True
         except Exception as e:
             logger.warning(f"Tesla poll failed: {e}")
 
-    state = _build_system_state()
+    state = await _build_system_state()
     mode = _current_mode
+
+    # Wake-to-check: if car is asleep and there's enough solar surplus,
+    # wake the car to refresh its plug-in status.
+    # Option B: if last known state was plugged in, wake immediately (it's likely still plugged in)
+    # Option A fallback: if we never got real data, wake periodically to discover plug state
+    if (state.ev_charge_state in ("unknown", "asleep") or tesla.last_state.state == "asleep") \
+            and mode in (ChargingMode.SOLAR_ONLY, ChargingMode.SCHEDULE) \
+            and not tesla.key_revoked:
+        # Calculate rough surplus to see if waking is worthwhile
+        rough_surplus = state.pv_power - state.load_power - charger_settings.battery_protection_buffer_w
+        min_charge_w = charger_settings.min_charge_amps * charger_settings.charger_voltage * charger_settings.charger_phases
+        has_surplus = rough_surplus >= min_charge_w
+
+        should_wake = False
+        if has_surplus and tesla.last_state.is_plugged_in and (now - _last_wake_check >= WAKE_CHECK_INTERVAL):
+            # Option B: car was plugged in before sleeping — wake to start charging
+            should_wake = True
+            wake_reason = "plugged in before sleep + solar surplus available"
+        elif has_surplus and not _ever_polled_successfully and (now - _last_wake_check >= WAKE_CHECK_INTERVAL):
+            # Option A fallback: never got real data, check periodically
+            should_wake = True
+            wake_reason = "unknown plug state + solar surplus — periodic check"
+        elif has_surplus and not tesla.last_state.is_plugged_in and (now - _last_wake_check >= WAKE_CHECK_INTERVAL):
+            # Option A fallback: was not plugged in last we knew, but check periodically
+            should_wake = True
+            wake_reason = "solar surplus — periodic plug check"
+
+        if should_wake:
+            _last_wake_check = now
+            logger.info(f"Waking car to check state: {wake_reason}")
+            elog(f"Waking car: {wake_reason}", INFO, "tesla")
+            if await tesla.wake_and_wait():
+                await tesla.get_vehicle_data()
+                _last_tesla_poll = now
+                _ever_polled_successfully = True
+                state = await _build_system_state()  # rebuild with fresh data
 
     # Detect external charging state changes (started/stopped from Tesla app or car)
     if _last_ev_charge_state and state.ev_charge_state != _last_ev_charge_state:
@@ -155,6 +207,22 @@ async def _control_loop_tick():
 
     logger.info(f"Decision: {decision.action.value} → {decision.target_amps}A | {decision.reason}")
 
+    # Handle pending charge_start from previous tick (START is split into 2 ticks:
+    # tick 1 = set_amps, tick 2 = charge_start — one command per proxy session to
+    # prevent the tesla-http-proxy IV counter corruption bug.
+    # BLE skips this via supports_multi_command=True)
+    if _pending_charge_start:
+        _pending_charge_start = False
+        if decision.action != ChargingAction.STOP:  # don't start if algorithm now says stop
+            elog(f"Sending charge_start ({_pending_start_amps}A)", INFO, "tesla")
+            ok = await tesla.start_charging()
+            if ok:
+                _start_session(state.ev_soc)
+                elog(f"Charging started at {_pending_start_amps}A", SUCCESS, "tesla")
+            else:
+                elog("charge_start failed — will retry", WARN, "tesla")
+        return  # only one command per tick
+
     # Execute decision (only send command if amps actually changed)
     if decision.target_amps != _last_amps_sent:
         # Only log on meaningful state changes, not repeated holds
@@ -165,7 +233,7 @@ async def _control_loop_tick():
 
         if decision.action == ChargingAction.STOP:
             elog("Sending stop charging command", INFO, "tesla")
-            ok = await tesla_api.stop_charging()
+            ok = await tesla.stop_charging()
             if ok:
                 _last_amps_sent = 0
                 _end_session(state.ev_soc)
@@ -175,17 +243,27 @@ async def _control_loop_tick():
                 elog("Stop command failed — will retry", WARN, "tesla")
         elif decision.action in (ChargingAction.START, ChargingAction.INCREASE, ChargingAction.DECREASE):
             elog(f"Setting charging to {decision.target_amps}A", INFO, "tesla")
-            ok = await tesla_api.set_charging_amps(decision.target_amps)
+            ok = await tesla.set_charging_amps(decision.target_amps)
             if ok:
+                _last_amps_sent = decision.target_amps
                 if decision.action == ChargingAction.START:
-                    await tesla_api.start_charging()
-                    _start_session(state.ev_soc)
-                    elog(f"Charging started at {decision.target_amps}A", SUCCESS, "tesla")
+                    if tesla.supports_multi_command:
+                        # BLE: send charge_start in the same tick
+                        ok2 = await tesla.start_charging()
+                        if ok2:
+                            _start_session(state.ev_soc)
+                            elog(f"Charging started at {decision.target_amps}A", SUCCESS, "tesla")
+                        else:
+                            elog("charge_start failed — will retry", WARN, "tesla")
+                    else:
+                        # Fleet API: queue charge_start for next tick (IV counter bug)
+                        _pending_charge_start = True
+                        _pending_start_amps = decision.target_amps
+                        elog(f"Amps set to {decision.target_amps}A — charge_start queued for next tick", INFO, "tesla")
                 elif decision.action == ChargingAction.INCREASE:
                     elog(f"Amps increased to {decision.target_amps}A", SUCCESS, "algorithm")
                 elif decision.action == ChargingAction.DECREASE:
                     elog(f"Amps decreased to {decision.target_amps}A", WARN, "algorithm")
-                _last_amps_sent = decision.target_amps
             else:
                 logger.warning(f"Set amps command failed — will retry next tick")
                 elog(f"Set amps command failed — will retry", WARN, "tesla")
