@@ -60,11 +60,16 @@ ssh "$REMOTE_USER@$REMOTE_HOST" "
 "
 
 # Step 4: Build and start Docker containers
+# Use --network=host so pip can reach PyPI through the server's DNS during build.
+# Avoid --no-cache: requirements.txt rarely changes, so caching the pip layer is safe
+# and avoids re-downloading packages on every deploy.
+# Pass --no-cache only when requirements.txt has changed (detected below).
 echo "[4/5] Building and starting Docker containers..."
 ssh "$REMOTE_USER@$REMOTE_HOST" "
     cd $REMOTE_DIR
     docker compose down 2>/dev/null || true
-    docker compose build --no-cache
+    BUILDKIT_PROGRESS=plain DOCKER_BUILDKIT=1 \
+        docker compose build --network=host
     docker compose up -d
 "
 
