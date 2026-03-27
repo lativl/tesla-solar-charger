@@ -11,3 +11,13 @@
         })
         .catch(() => {});
 })();
+
+// Fetch app version and display under the title
+(function() {
+    const el = document.getElementById('app-version');
+    if (!el) return;
+    fetch('/api/version')
+        .then(r => r.json())
+        .then(data => { el.textContent = 'v' + data.version; })
+        .catch(() => {});
+})();

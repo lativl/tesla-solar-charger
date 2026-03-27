@@ -1,8 +1,12 @@
 import asyncio
 import logging
+from pathlib import Path
 
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
+
+_VERSION_FILE = Path(__file__).resolve().parent.parent / "VERSION"
+__version__ = _VERSION_FILE.read_text().strip() if _VERSION_FILE.exists() else "0.0.0"
 from fastapi.staticfiles import StaticFiles
 
 from app.api.dashboard import router as dashboard_router
@@ -41,7 +45,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Tesla Solar Charger",
-    version="1.0.0",
+    version=__version__,
     lifespan=lifespan,
 )
 

@@ -68,8 +68,7 @@ echo "[4/5] Building and starting Docker containers..."
 ssh "$REMOTE_USER@$REMOTE_HOST" "
     cd $REMOTE_DIR
     docker compose down 2>/dev/null || true
-    BUILDKIT_PROGRESS=plain DOCKER_BUILDKIT=1 \
-        docker compose build --network=host
+    BUILDKIT_PROGRESS=plain docker compose build
     docker compose up -d
 "
 

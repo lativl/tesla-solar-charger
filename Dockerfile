@@ -9,6 +9,7 @@ COPY requirements.txt .
 RUN --mount=type=cache,target=/root/.cache/pip \
     pip install -r requirements.txt
 
+COPY VERSION .
 COPY app/ ./app/
 
 EXPOSE 5050

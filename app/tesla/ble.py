@@ -33,35 +33,35 @@ DEFAULT_ENTITY_MAP = {
     "wake_button":        "button/Wake%20Up",
     "time_to_full":       "sensor/Time%20to%20Full",
     # Extended sensors (used by get_full_vehicle_data)
-    "charging_rate":      "sensor/charging_rate",
-    "energy_added":       "sensor/energy_added",
-    "outside_temp":       "sensor/outside_temperature",
-    "range":              "sensor/range",
-    "tpms_fl":            "sensor/tpms_front_left",
-    "tpms_fr":            "sensor/tpms_front_right",
-    "tpms_rl":            "sensor/tpms_rear_left",
-    "tpms_rr":            "sensor/tpms_rear_right",
+    "charging_rate":      "sensor/Charging%20Rate",
+    "energy_added":       "sensor/Energy%20Added",
+    "outside_temp":       "sensor/Outside%20Temperature",
+    "range":              "sensor/Range",
+    "tpms_fl":            "sensor/TPMS%20Front%20Left",
+    "tpms_fr":            "sensor/TPMS%20Front%20Right",
+    "tpms_rl":            "sensor/TPMS%20Rear%20Left",
+    "tpms_rr":            "sensor/TPMS%20Rear%20Right",
     # Binary sensors
-    "asleep":             "binary_sensor/asleep",
-    "parking_brake":      "binary_sensor/parking_brake",
-    "charger_plugged":    "binary_sensor/charger",
+    "asleep":             "binary_sensor/Asleep",
+    "parking_brake":      "binary_sensor/Parking%20Brake",
+    "charger_plugged":    "binary_sensor/Charger",
     # Climate
-    "climate":            "climate/climate",
+    "climate":            "climate/Climate",
     # Switches
-    "sentry_mode":        "switch/sentry_mode",
-    "heated_steering":    "switch/heated_steering",
+    "sentry_mode":        "switch/Sentry%20Mode",
+    "heated_steering":    "switch/Heated%20Steering",
     # Covers
-    "charge_port_door":   "cover/charge_port_door",
-    "trunk":              "cover/trunk",
-    "frunk":              "cover/frunk",
-    "windows":            "cover/windows",
+    "charge_port_door":   "cover/Charge%20Port%20Door",
+    "trunk":              "cover/Trunk",
+    "frunk":              "cover/Frunk",
+    "windows":            "cover/Windows",
     # Locks
-    "charge_port_latch":  "lock/charge_port_latch",
-    "doors_lock":         "lock/doors",
+    "charge_port_latch":  "lock/Charge%20Port%20Latch",
+    "doors_lock":         "lock/Doors",
     # Buttons
-    "flash_lights":       "button/flash_lights",
-    "sound_horn":         "button/sound_horn",
-    "force_update":       "button/force_data_update",
+    "flash_lights":       "button/Flash%20Lights",
+    "sound_horn":         "button/Sound%20Horn",
+    "force_update":       "button/Force%20Data%20Update",
 }
 
 BAR_TO_PSI = 14.5038

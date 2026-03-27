@@ -15,6 +15,12 @@ from app.tesla.manager import transport_manager
 router = APIRouter(prefix="/api")
 
 
+@router.get("/version")
+async def get_version():
+    from app.main import __version__
+    return {"version": __version__}
+
+
 @router.get("/status")
 async def get_status():
     solar = mqtt_client.get_solar_status()
