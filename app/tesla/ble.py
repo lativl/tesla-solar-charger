@@ -189,7 +189,10 @@ class BleTransport(TeslaTransport):
 
         def val(key, default=0):
             d = data.get(key)
-            return d["value"] if d and d.get("value") is not None else default
+            v = d["value"] if d and d.get("value") is not None else default
+            if isinstance(v, str) and v.lower() in ("nan", "inf", "-inf"):
+                return default
+            return v
 
         def state_str(key, default=""):
             d = data.get(key)
@@ -343,7 +346,10 @@ class BleTransport(TeslaTransport):
 
         def val(key, default=0):
             d = data.get(key)
-            return d["value"] if d and d.get("value") is not None else default
+            v = d["value"] if d and d.get("value") is not None else default
+            if isinstance(v, str) and v.lower() in ("nan", "inf", "-inf"):
+                return default
+            return v
 
         def state_str(key, default=""):
             d = data.get(key)
