@@ -189,7 +189,7 @@ class BleTransport(TeslaTransport):
 
         def val(key, default=0):
             d = data.get(key)
-            return d["value"] if d and "value" in d else default
+            return d["value"] if d and d.get("value") is not None else default
 
         def state_str(key, default=""):
             d = data.get(key)
@@ -343,7 +343,7 @@ class BleTransport(TeslaTransport):
 
         def val(key, default=0):
             d = data.get(key)
-            return d["value"] if d and "value" in d else default
+            return d["value"] if d and d.get("value") is not None else default
 
         def state_str(key, default=""):
             d = data.get(key)
@@ -351,7 +351,7 @@ class BleTransport(TeslaTransport):
 
         def bool_val(key, default=False):
             d = data.get(key)
-            return d["value"] if d and "value" in d else default
+            return d["value"] if d and d.get("value") is not None else default
 
         # Charge state
         raw_state = state_str("charging_state", "").strip()

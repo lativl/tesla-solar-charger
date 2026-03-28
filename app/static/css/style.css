@@ -463,6 +463,9 @@ main {
     font-size: 1.1rem;
 }
 
+.chart-meta { font-size: 0.75rem; color: var(--text-muted); }
+.chart-empty { font-size: 0.85rem; color: var(--text-muted); padding: 2rem; text-align: center; }
+
 .chart-header select {
     padding: 0.35rem 0.6rem;
     border: 1px solid var(--border);

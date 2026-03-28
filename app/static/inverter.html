@@ -81,8 +81,21 @@
             </div>
         </div>
 
+        <!-- Lux → PV Model Chart -->
+        <div class="section chart-section">
+            <div class="chart-header">
+                <h2>Solar Lux → PV Power Model</h2>
+                <span id="lux-model-meta" class="chart-meta"></span>
+            </div>
+            <div id="lux-chart-empty" class="chart-empty" style="display:none">Not enough data yet — model needs at least 3 lux buckets with 10+ samples each.</div>
+            <div class="chart-container" id="lux-chart-wrap">
+                <canvas id="lux-chart"></canvas>
+            </div>
+        </div>
+
     </main>
 
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
     <script src="/js/nav.js"></script>
     <script src="/js/inverter.js"></script>
 </body>
