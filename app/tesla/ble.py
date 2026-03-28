@@ -8,6 +8,7 @@ No rate limits, no proxy recreation, <1s response times, no internet required.
 
 import asyncio
 import logging
+import math
 
 import httpx
 
@@ -544,8 +545,9 @@ class BleTransport(TeslaTransport):
 
 
 def _safe_float(v, default=None):
-    """Convert to float, returning default on failure."""
+    """Convert to float, returning default on failure or non-finite values."""
     try:
-        return float(v)
+        f = float(v)
+        return default if not math.isfinite(f) else f
     except (ValueError, TypeError):
         return default
