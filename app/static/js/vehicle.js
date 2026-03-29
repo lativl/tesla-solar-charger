@@ -26,6 +26,7 @@ async function loadVehicleData() {
         const resp = await fetch('/api/tesla/vehicle_data');
         const json = await resp.json();
         const isBle = json.channel === 'ble';
+        document.getElementById('vehicle-loading').style.display = 'none';
 
         if (!json.connected) {
             document.getElementById('vehicle-offline').style.display = '';
@@ -138,6 +139,10 @@ async function loadVehicleData() {
 
     } catch (e) {
         console.error('Failed to load vehicle data:', e);
+        document.getElementById('vehicle-loading').style.display = 'none';
+        document.getElementById('vehicle-offline').style.display = '';
+        document.getElementById('vehicle-offline-msg').textContent = 'Failed to load vehicle data. Retrying…';
+        document.getElementById('vehicle-content').style.display = 'none';
     }
 }
 

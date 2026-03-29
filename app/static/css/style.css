@@ -446,6 +446,31 @@ main {
     white-space: nowrap;
 }
 
+/* Vehicle loading state */
+.vehicle-loading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 4rem 2rem;
+    color: var(--text-muted);
+    font-size: 0.9rem;
+    gap: 1rem;
+}
+
+.vehicle-loading-spinner {
+    width: 36px;
+    height: 36px;
+    border: 3px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
 /* Power History Chart */
 .chart-section {
     margin-bottom: 1.5rem;
