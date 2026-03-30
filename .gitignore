@@ -10,7 +10,6 @@ venv/
 # Environment
 .env
 .deploy.env
-CLAUDE.md
 
 # Secrets — never commit private keys or TLS certs
 tesla_fleet.key

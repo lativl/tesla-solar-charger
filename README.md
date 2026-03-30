@@ -15,6 +15,22 @@ Automatically maximizes solar self-consumption by dynamically adjusting Tesla EV
 - **Real-time dashboard** — WebSocket-driven gauges and power flow cards
 - **Event logger** — deduplicated algorithm decisions, Tesla commands, and MQTT events
 
+## Screenshots
+
+| Dashboard | Inverter |
+|---|---|
+| ![Dashboard](screenshots/dashboard.png) | ![Inverter](screenshots/inverter.png) |
+
+| Vehicle | Settings |
+|---|---|
+| ![Vehicle](screenshots/vehicle.png) | ![Settings](screenshots/settings.png) |
+
+| Logger | Help |
+|---|---|
+| ![Logger](screenshots/logger.png) | ![Help](screenshots/help.png) |
+
+---
+
 ## Architecture
 
 ```
