@@ -131,10 +131,13 @@ class TransportManager:
         logger.info(f"Active channel switched to: {channel}")
 
     def get_status(self) -> dict:
+        from app.tesla.auth import get_valid_token
+        has_token = bool(get_valid_token())
         return {
             "active_channel": self._active_channel,
             "fleet_api": {
                 "available": self._fleet is not None,
+                "has_token": has_token,
                 "key_revoked": self._fleet.key_revoked if self._fleet else False,
             },
             "ble": {

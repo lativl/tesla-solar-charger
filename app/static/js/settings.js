@@ -75,18 +75,33 @@ async function loadTeslaStatus() {
     try {
         const resp = await fetch('/api/tesla/status');
         const data = await resp.json();
-        if (data.connected && data.vehicle && data.vehicle.battery_level > 0) {
-            document.getElementById('tesla-connected').textContent = 'Connected';
-            document.getElementById('tesla-connected').style.color = '#22c55e';
+        const channel = data.transport?.active_channel;
+
+        // If BLE is the active channel, Fleet API auth is irrelevant here
+        if (channel === 'ble') {
+            document.getElementById('tesla-connected').textContent = 'Using BLE — Fleet API not in use';
+            document.getElementById('tesla-connected').style.color = 'var(--text-muted)';
             document.getElementById('tesla-auth-section').style.display = 'none';
-            document.getElementById('tesla-vehicle').style.display = 'grid';
-            document.getElementById('tesla-name').textContent = data.vehicle.name || data.vehicle.vin;
-            document.getElementById('tesla-soc').textContent = `${data.vehicle.battery_level}%`;
-            document.getElementById('tesla-state').textContent = data.vehicle.charge_state;
+            document.getElementById('tesla-vehicle').style.display = 'none';
+            return;
+        }
+
+        if (data.connected) {
+            document.getElementById('tesla-connected').textContent = data.key_revoked ? 'Connected (key revoked)' : 'Connected';
+            document.getElementById('tesla-connected').style.color = data.key_revoked ? '#f59e0b' : '#22c55e';
+            document.getElementById('tesla-auth-section').style.display = 'none';
+            const v = data.vehicle;
+            if (v && (v.battery_level > 0 || v.name)) {
+                document.getElementById('tesla-vehicle').style.display = 'grid';
+                document.getElementById('tesla-name').textContent = v.name || v.vin || '—';
+                document.getElementById('tesla-soc').textContent = v.battery_level > 0 ? `${v.battery_level}%` : 'Asleep';
+                document.getElementById('tesla-state').textContent = v.charge_state;
+            }
         } else {
-            document.getElementById('tesla-connected').textContent = 'Not connected';
+            document.getElementById('tesla-connected').textContent = 'Not connected — authorize below';
             document.getElementById('tesla-connected').style.color = '#ef4444';
             document.getElementById('tesla-auth-section').style.display = 'block';
+            document.getElementById('tesla-vehicle').style.display = 'none';
         }
     } catch (e) {
         document.getElementById('tesla-connected').textContent = 'Error checking status';
@@ -164,9 +179,23 @@ async function loadChannelStatus() {
         document.getElementById('active-channel-badge').style.color =
             data.active_channel === 'ble' ? '#22c55e' : 'var(--text)';
 
-        const fleetOk = data.fleet_api?.available;
-        document.getElementById('fleet-api-badge').textContent = fleetOk ? 'Available' : 'Unavailable';
-        document.getElementById('fleet-api-badge').style.color = fleetOk ? '#22c55e' : '#ef4444';
+        const fleet = data.fleet_api;
+        let fleetText, fleetColor;
+        if (fleet?.key_revoked) {
+            fleetText = 'Key revoked';
+            fleetColor = '#ef4444';
+        } else if (!fleet?.has_token) {
+            fleetText = 'No token — authorize in Tesla Connection';
+            fleetColor = '#f59e0b';
+        } else {
+            fleetText = 'Token valid';
+            fleetColor = '#22c55e';
+        }
+        document.getElementById('fleet-api-badge').textContent = fleetText;
+        document.getElementById('fleet-api-badge').style.color = fleetColor;
+
+        const keyRevokedWarning = document.getElementById('key-revoked-warning');
+        if (keyRevokedWarning) keyRevokedWarning.style.display = fleet?.key_revoked ? 'block' : 'none';
 
         const bleAvail = data.ble?.available;
         const bleReach = data.ble?.reachable;

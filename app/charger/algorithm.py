@@ -45,6 +45,7 @@ class ChargerSettings:
     speculative_min_pv_w: int = 500      # minimum PV production to attempt speculative start
     high_soc_threshold: int = 95         # battery SoC above which slight discharge is tolerated
     high_soc_discharge_allowance_w: int = 150  # allowed battery discharge (W) when SoC above threshold
+    battery_charge_threshold_w: int = 200  # hold EV amps if battery charging below this W and SoC < high_soc_threshold
     lux_stop_threshold: int = 200        # below this lux, stop trying solar (overcast/dark)
     lux_conservative_threshold: int = 5000  # below this lux, reduce speculative aggressiveness
     lux_aggressive_threshold: int = 20000   # above this lux, full confidence in solar
@@ -90,9 +91,14 @@ class ChargingAlgorithm:
         self._grid_penalty_active: bool = False
         # Stabilization: hold after amps change to avoid oscillation
         self._stabilize_ticks_remaining: int = 0
+        # Stop cooldown: block speculative start for N ticks after stopping
+        self._stop_cooldown_ticks: int = 0
 
     def decide(self, state: SystemState, mode: ChargingMode) -> Decision:
         s = self.settings
+
+        if self._stop_cooldown_ticks > 0:
+            self._stop_cooldown_ticks -= 1
 
         if mode == ChargingMode.PAUSED:
             return Decision(ChargingAction.STOP, 0, "Charging paused by user")
@@ -238,6 +244,7 @@ class ChargingAlgorithm:
 
             if (speculative_allowed
                     and state.ev_charging_amps == 0
+                    and self._stop_cooldown_ticks == 0
                     and state.battery_soc >= speculative_soc
                     and pv_condition
                     and state.grid_power_ct <= s.max_grid_import_w):
@@ -247,6 +254,7 @@ class ChargingAlgorithm:
                                 f"PV {state.pv_power}W, surplus only {available_w}W{lux_info}{predicted_info})",
                                 available_w)
             if state.ev_charging_amps > 0:
+                self._stop_cooldown_ticks = max(1, s.ramp_down_delay_s // TICK_INTERVAL_S)
                 return Decision(ChargingAction.STOP, 0,
                                 f"Available {available_w}W ({target_amps}A) below minimum {s.min_charge_amps}A{lux_info}",
                                 available_w)
@@ -272,6 +280,21 @@ class ChargingAlgorithm:
                             f"Holding at {current_amps}A (stabilizing {self._stabilize_ticks_remaining * TICK_INTERVAL_S}s left, surplus {available_w}W)",
                             available_w)
 
+        # Battery weak-charge hold: keep amps steady when battery is just trickle-charging
+        # and SoC hasn't reached the high-SoC threshold yet
+        if (
+            state.battery_soc < s.high_soc_threshold
+            and 0 <= state.battery_power <= s.battery_charge_threshold_w
+        ):
+            return Decision(
+                ChargingAction.HOLD,
+                current_amps,
+                f"Holding at {current_amps}A — battery charging weakly "
+                f"({state.battery_power}W ≤ {s.battery_charge_threshold_w}W, "
+                f"SoC {state.battery_soc}% < {s.high_soc_threshold}%)",
+                available_w,
+            )
+
         # Ramp up (gradual)
         if target_amps > current_amps:
             new_amps = min(current_amps + s.ramp_up_step, target_amps)
@@ -284,6 +307,7 @@ class ChargingAlgorithm:
         if target_amps < current_amps:
             new_amps = max(current_amps - s.ramp_down_step, target_amps)
             if new_amps < s.min_charge_amps:
+                self._stop_cooldown_ticks = max(1, s.ramp_down_delay_s // TICK_INTERVAL_S)
                 return Decision(ChargingAction.STOP, 0,
                                 f"Ramping down to {new_amps}A below minimum — stopping",
                                 available_w)

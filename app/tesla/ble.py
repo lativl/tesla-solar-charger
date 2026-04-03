@@ -31,7 +31,10 @@ DEFAULT_ENTITY_MAP = {
     "charging_switch":    "switch/Charger",
     "charging_amps":      "number/Charging%20Amps",
     "charge_limit":       "number/Charging%20Limit",
-    "wake_button":        "button/Wake%20Up",
+    # Buttons: ESPHome uses the entity ID (lowercase_underscore) as the URL path,
+    # which is consistent across all ESPHome versions.  The capitalized "name_id"
+    # form is version/config-dependent and can differ (e.g. "Wake up" vs "Wake Up").
+    "wake_button":        "button/wake_up",
     "time_to_full":       "sensor/Time%20to%20Full",
     # Extended sensors (used by get_full_vehicle_data)
     "charging_rate":      "sensor/Charging%20Rate",
@@ -59,10 +62,10 @@ DEFAULT_ENTITY_MAP = {
     # Locks
     "charge_port_latch":  "lock/Charge%20Port%20Latch",
     "doors_lock":         "lock/Doors",
-    # Buttons
+    # Buttons (using lowercase entity IDs — reliable across all ESPHome versions)
     "flash_lights":       "button/Flash%20Lights",
     "sound_horn":         "button/Sound%20Horn",
-    "force_update":       "button/Force%20Data%20Update",
+    "force_update":       "button/force_data_update",
 }
 
 BAR_TO_PSI = 14.5038
@@ -166,7 +169,7 @@ class BleTransport(TeslaTransport):
             # POST to the ESP32's force_data_update button — tells it to request fresh
             # BLE data from Tesla. The POST itself returns quickly; the ESP32 handles
             # the BLE connection asynchronously. Fresh data will appear in the NEXT poll.
-            await self._post(self._entity_map.get("force_update", "button/Force%20Data%20Update"))
+            await self._post(self._entity_map.get("force_update", "button/force_data_update") + "/press")
             if stale_detected:
                 logger.info("BLE: stale data detected — triggered force_data_update")
                 self._soc_stale_polls = 0  # reset so we don't spam

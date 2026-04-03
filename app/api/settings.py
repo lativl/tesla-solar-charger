@@ -38,6 +38,7 @@ CHARGER_DEFAULTS = {
     "speculative_min_pv_w": "500",
     "high_soc_threshold": "95",
     "high_soc_discharge_allowance_w": "150",
+    "battery_charge_threshold_w": "200",
     "lux_stop_threshold": "200",
     "lux_conservative_threshold": "5000",
     "lux_aggressive_threshold": "20000",
@@ -59,7 +60,7 @@ CONNECTION_DEFAULTS = {
     "ble_entity_charging_switch": "switch/Charger",
     "ble_entity_charging_amps": "number/Charging%20Amps",
     "ble_entity_charge_limit": "number/Charging%20Limit",
-    "ble_entity_wake_button": "button/Wake%20Up",
+    "ble_entity_wake_button": "button/wake_up",
 }
 
 DEFAULTS = {**CHARGER_DEFAULTS, **CONNECTION_DEFAULTS}
@@ -89,6 +90,7 @@ SETTING_TOOLTIPS = {
     "speculative_min_pv_w": "Minimum PV production (watts) to attempt speculative start. Prevents starts in genuinely low-light conditions.",
     "high_soc_threshold": "When battery SoC ≥ this %, tolerate slight discharge to keep EV charging stable.",
     "high_soc_discharge_allowance_w": "Watts of battery discharge tolerated when SoC is above threshold. Prevents unnecessary ramp-downs near full.",
+    "battery_charge_threshold_w": "Hold EV charging amps unchanged when battery is charging below this value (W) and SoC is below the High SoC Threshold. Prevents the EV from stealing the last trickle of power going into the home battery.",
     "lux_stop_threshold": "Below this lux, stop trying solar entirely — too dark or overcast. Requires Home Assistant integration.",
     "lux_conservative_threshold": "Below this lux, skip speculative starts (cloudy). Regular surplus charging still works.",
     "lux_aggressive_threshold": "Above this lux (bright sun), lower speculative start SoC requirement by 10% for more aggressive charging.",

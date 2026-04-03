@@ -434,6 +434,7 @@
                             <p>If grid import exceeds <em>Max Grid Import</em> for longer than <em>Grid Penalty Delay</em>, a penalty reduces the target amps. Clears after grid drops below the limit for <em>Grid Recovery Delay</em>.</p>
                             <p>If battery discharge exceeds <em>Battery Discharge Threshold</em> for longer than <em>Battery Penalty Delay</em>, a similar penalty applies. Clears after <em>Battery Recovery Delay</em>.</p>
                             <p>At high battery SoC (above <em>High SoC Threshold</em>), minor discharge up to <em>High SoC Discharge Allow</em> watts is tolerated, suppressing unnecessary ramp-downs.</p>
+                            <p>When SoC is still <em>below</em> <em>High SoC Threshold</em> but the home battery is only charging weakly (reported battery power between 0 W and <em>Battery Charge Threshold</em>), the algorithm holds the EV charging current steady instead of ramping. That keeps a small trickle going into the home battery instead of having the car absorb every last watt.</p>
                         </div>
                     </div>
                     <div class="help-step">
@@ -455,6 +456,7 @@
                         <div class="step-content">
                             <h4>Amp Targeting and Ramping</h4>
                             <p>Target amps = surplus &div; (phases &times; voltage). Amps are ramped toward the target in steps no larger than <em>Ramp Up Step</em> or <em>Ramp Down Step</em>. After each change, the algorithm waits <em>Ramp Up Delay</em> or <em>Ramp Down Delay</em> seconds before the next adjustment. This prevents oscillation from momentary cloud cover.</p>
+                            <p>If the weak-charge condition applies (SoC below <em>High SoC Threshold</em> and battery power between 0 W and <em>Battery Charge Threshold</em>), ramp commands are skipped and the current amp setting is held until the condition clears.</p>
                         </div>
                     </div>
                     <div class="help-step">
@@ -513,6 +515,7 @@
                         <tr><td>Grid Recovery Delay</td><td>40 s</td><td>Seconds grid import must stay below limit before penalty clears. Prevents oscillation near threshold.</td></tr>
                         <tr><td>High SoC Threshold</td><td>90%</td><td>When battery SoC &ge; this %, tolerate slight discharge to keep EV charging stable.</td></tr>
                         <tr><td>High SoC Discharge Allow</td><td>200 W</td><td>Watts of battery discharge tolerated when SoC is above threshold. Prevents unnecessary ramp-downs near full.</td></tr>
+                        <tr><td>Battery Charge Threshold</td><td>200 W</td><td>While SoC is <em>below</em> <em>High SoC Threshold</em>, if actual battery charge power is between 0 W and this value (inclusive), EV charging amps are held unchanged (no ramp up or down).</td></tr>
                     </tbody>
                 </table>
 
@@ -630,7 +633,7 @@
                         </tr>
                         <tr>
                             <td><strong>Algorithm</strong></td>
-                            <td>Charging decisions: surplus calculations, amps increased/decreased, insufficient surplus, battery lockout</td>
+                            <td>Charging decisions: surplus calculations, amps increased/decreased, insufficient surplus, battery lockout, weak battery charge hold</td>
                         </tr>
                         <tr>
                             <td><strong>Tesla</strong></td>
